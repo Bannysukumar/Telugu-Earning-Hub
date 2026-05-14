@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Telugu-Earning-Hub"
+version = "1.0.0"
+id = "artifacts/roi-platform"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19154
+
+[services.development]
+run = "pnpm --filter @workspace/roi-platform run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/roi-platform", "run", "build" ]
+publicDir = "artifacts/roi-platform/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19154"
+BASE_PATH = "/"

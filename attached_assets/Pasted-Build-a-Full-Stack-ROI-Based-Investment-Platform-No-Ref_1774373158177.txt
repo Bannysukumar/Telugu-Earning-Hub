@@ -1,0 +1,213 @@
+Build a Full-Stack ROI-Based Investment Platform (No Referral MLM)
+
+🎯 OBJECTIVE
+
+Create a production-ready, secure, scalable web application where:
+
+Users invest in fixed plans
+Earn 0.5% daily ROI (Mon–Fri only)
+ROI stops automatically when:
+✅ User earns 2x of investment
+✅ OR 400 days completed
+Admin has full control over system
+🧱 TECH STACK (STRICT)
+Frontend: React (Vite)
+Styling: Tailwind CSS
+Backend: Firebase
+Auth: Firebase Authentication (Email/Password)
+Database: Firestore (NoSQL)
+Automation: Firebase Cloud Functions (Scheduled Cron Jobs)
+Hosting: Firebase Hosting
+📊 BUSINESS LOGIC (VERY IMPORTANT — FOLLOW STRICTLY)
+ROI Rules:
+Daily ROI = 0.5% of investment
+ROI given only Monday to Friday
+❌ No ROI on Saturday & Sunday
+Max earning = 2x of investment
+Max duration = 400 days
+
+Stop condition:
+
+IF totalEarned >= 2x investment OR daysCompleted >= 400
+    → plan becomes inactive
+    → stop ROI permanently
+💼 INVESTMENT PLANS (DYNAMIC — ADMIN CONTROLLED)
+
+Plans must be stored in Firestore and editable by admin.
+
+Example:
+
+₹10,000 → ₹50/day
+₹20,000 → ₹100/day
+₹30,000 → ₹150/day
+₹50,000 → ₹250/day
+₹1,00,000 → ₹500/day
+🔐 AUTHENTICATION SYSTEM
+Features:
+Signup (Name, Email, Password)
+Login / Logout
+Protected routes
+Session persistence
+Redirect unauthorized users
+🧑‍💻 USER FEATURES
+🏠 Dashboard
+
+Display:
+
+Total Investment
+Total Earnings
+Wallet Balance
+Active Plans
+Completed Plans
+📦 Invest in Plan
+Show available plans
+User selects plan → creates investment record
+Store:
+startDate
+lastROIUpdate
+totalEarned = 0
+daysCompleted = 0
+isActive = true
+📊 My Investments
+Show all investments
+Show:
+Daily ROI
+Earned amount
+Remaining amount
+Days completed
+Status (Active / Completed)
+💸 Withdraw System
+
+Rules:
+
+Minimum withdrawal = ₹500
+User submits request
+Status = pending
+🤖 ROI AUTOMATION SYSTEM (CRITICAL PART)
+Use Firebase Cloud Functions (Scheduled Job)
+Run:
+Once daily (cron job)
+Logic Flow:
+Get current day
+IF Saturday or Sunday → STOP execution
+Fetch all active investments
+For each investment:
+IF isActive == true:
+
+    IF totalEarned >= maxReturn (2x)
+        → set isActive = false
+        → STOP
+
+    IF daysCompleted >= 400
+        → set isActive = false
+        → STOP
+
+    ELSE:
+        → Add daily ROI to:
+            - totalEarned
+            - user walletBalance
+        → Increment daysCompleted by 1
+        → Update lastROIUpdate
+🛠️ ADMIN PANEL (FULL CONTROL SYSTEM)
+🔐 Admin Authentication
+Only admin email can access admin panel
+👥 User Management
+View all users
+Edit wallet balance
+Activate / Deactivate user
+📦 Plan Management
+Add plan
+Edit plan
+Delete plan
+Enable / Disable plan
+💸 Withdrawal Management
+View all requests
+Approve → add deduction from wallet
+Reject → update status
+📊 Investment Monitoring
+View all investments
+Filter:
+Active
+Completed
+See:
+ROI progress
+Days completed
+🌐 WEBSITE PAGES STRUCTURE
+Public Pages:
+Home
+About Us
+Vision
+Contact
+Plans
+Privacy Policy
+Terms & Conditions
+User Pages:
+Dashboard
+My Investments
+Withdraw
+Profile
+Admin Pages:
+Admin Dashboard
+Users
+Plans
+Withdrawals
+Investments
+🎨 UI/UX REQUIREMENTS
+Modern, clean UI
+Mobile responsive
+Use Tailwind CSS
+Card-based layout
+Dashboard analytics UI
+Smooth loading states
+Toast notifications
+🔒 SECURITY RULES
+Users can access only their data
+Admin has full access
+Validate all writes in backend
+Prevent direct DB manipulation
+📁 PROJECT STRUCTURE
+Modular React components
+Separate:
+services (Firebase)
+hooks
+pages
+admin module
+Reusable UI components
+⚙️ PERFORMANCE REQUIREMENTS
+Use lazy loading
+Optimize Firestore reads
+Use indexed queries
+Avoid unnecessary re-renders
+🚀 DEPLOYMENT
+Deploy frontend via Firebase Hosting
+Configure environment variables
+Secure Firebase config
+🧪 TESTING REQUIREMENTS
+
+Test full flow:
+
+Signup/Login
+Plan investment
+ROI automation
+Weekend skip logic
+2x stop logic
+400 days stop logic
+Withdrawal system
+Admin operations
+⚠️ STRICT RULES (DO NOT BREAK)
+❌ No referral system
+❌ No ROI on weekends
+✅ Stop at 2x OR 400 days (whichever first)
+✅ Admin full control
+✅ Minimum withdrawal ₹500
+🧠 FINAL AI INSTRUCTION
+
+Build the complete project step-by-step with:
+
+Proper folder structure
+Clean architecture
+Firebase integration
+Production-level best practices
+Fully working frontend + backend
+Admin panel + user panel
+Automation system

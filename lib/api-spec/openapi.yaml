@@ -1,0 +1,1613 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 1.0.0
+  description: ROI Investment Platform API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: users
+    description: User operations
+  - name: plans
+    description: Investment plan operations
+  - name: investments
+    description: Investment operations
+  - name: withdrawals
+    description: Withdrawal operations
+  - name: admin
+    description: Admin operations
+  - name: cron
+    description: Cron/automation operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Email already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /plans:
+    get:
+      operationId: getPlans
+      tags: [plans]
+      summary: Get all active investment plans
+      responses:
+        "200":
+          description: List of plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Plan"
+
+  /investments:
+    get:
+      operationId: getMyInvestments
+      tags: [investments]
+      summary: Get current user's investments
+      responses:
+        "200":
+          description: List of investments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Investment"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createInvestment
+      tags: [investments]
+      summary: Create a new investment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInvestmentRequest"
+      responses:
+        "201":
+          description: Investment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Investment"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /withdrawals:
+    get:
+      operationId: getMyWithdrawals
+      tags: [withdrawals]
+      summary: Get current user's withdrawal requests
+      responses:
+        "200":
+          description: List of withdrawals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Withdrawal"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createWithdrawal
+      tags: [withdrawals]
+      summary: Request a withdrawal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWithdrawalRequest"
+      responses:
+        "201":
+          description: Withdrawal request created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Withdrawal"
+        "400":
+          description: Insufficient balance or minimum not met
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: User already has a pending withdrawal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too soon after the last withdrawal request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /withdrawals/fee-settings:
+    get:
+      operationId: getWithdrawalFeeSettings
+      tags: [withdrawals]
+      summary: Current withdrawal fee percent (for display before requesting)
+      responses:
+        "200":
+          description: Fee settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawalFeeSettings"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /user/dashboard:
+    get:
+      operationId: getDashboard
+      tags: [users]
+      summary: Get dashboard stats for current user
+      responses:
+        "200":
+          description: Dashboard statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /user/profile:
+    put:
+      operationId: updateProfile
+      tags: [users]
+      summary: Update user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileRequest"
+      responses:
+        "200":
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /user/income-history:
+    get:
+      operationId: getMyIncomeHistory
+      tags: [users]
+      summary: Paginated ROI and income history for current user
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Income history page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncomeHistoryPage"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /user/payment-settings:
+    get:
+      operationId: getUserPaymentSettings
+      tags: [users]
+      summary: QR / manual deposit settings for add-fund flow
+      responses:
+        "200":
+          description: Payment settings (public fields only)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentSettings"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /user/deposits:
+    get:
+      operationId: getMyDeposits
+      tags: [users]
+      summary: Deposit requests and history for current user
+      responses:
+        "200":
+          description: Pending deposit (if any) and full history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserDepositsResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/payment-settings:
+    get:
+      operationId: adminGetPaymentSettings
+      tags: [admin]
+      summary: Admin - Get QR payment settings
+      responses:
+        "200":
+          description: Payment settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentSettings"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: adminUpdatePaymentSettings
+      tags: [admin]
+      summary: Admin - Update QR URL and/or enable flag (use POST /admin/payment-settings/qr to upload image)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUpdatePaymentSettingsRequest"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentSettings"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/deposits:
+    get:
+      operationId: adminGetDeposits
+      tags: [admin]
+      summary: Admin - List all manual deposit requests
+      responses:
+        "200":
+          description: Deposits newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminDeposit"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/deposits/{depositId}:
+    put:
+      operationId: adminUpdateDeposit
+      tags: [admin]
+      summary: Admin - Approve or reject a deposit (approve credits wallet)
+      parameters:
+        - name: depositId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUpdateDepositRequest"
+      responses:
+        "200":
+          description: Updated deposit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminDeposit"
+        "400":
+          description: Invalid or already processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/users:
+    get:
+      operationId: adminGetUsers
+      tags: [admin]
+      summary: Admin - Get all users
+      responses:
+        "200":
+          description: List of all users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminUser"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/users/{userId}:
+    put:
+      operationId: adminUpdateUser
+      tags: [admin]
+      summary: Admin - Update user (wallet balance, status)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUpdateUserRequest"
+      responses:
+        "200":
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/plans:
+    get:
+      operationId: adminGetPlans
+      tags: [admin]
+      summary: Admin - Get all plans
+      responses:
+        "200":
+          description: All plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Plan"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: adminCreatePlan
+      tags: [admin]
+      summary: Admin - Create a plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePlanRequest"
+      responses:
+        "201":
+          description: Plan created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plan"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/plans/{planId}:
+    put:
+      operationId: adminUpdatePlan
+      tags: [admin]
+      summary: Admin - Update a plan
+      parameters:
+        - name: planId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePlanRequest"
+      responses:
+        "200":
+          description: Plan updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plan"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: adminDeletePlan
+      tags: [admin]
+      summary: Admin - Delete a plan
+      parameters:
+        - name: planId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Plan deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/withdrawals:
+    get:
+      operationId: adminGetWithdrawals
+      tags: [admin]
+      summary: Admin - Get all withdrawal requests
+      responses:
+        "200":
+          description: All withdrawals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminWithdrawal"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/withdrawals/{withdrawalId}:
+    put:
+      operationId: adminUpdateWithdrawal
+      tags: [admin]
+      summary: Admin - Approve or reject withdrawal
+      parameters:
+        - name: withdrawalId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUpdateWithdrawalRequest"
+      responses:
+        "200":
+          description: Withdrawal updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminWithdrawal"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/investments:
+    get:
+      operationId: adminGetInvestments
+      tags: [admin]
+      summary: Admin - Paginated investments with filters
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [active, completed, all]
+        - name: userId
+          in: query
+          required: false
+          description: Filter by Firebase user id
+          schema:
+            type: string
+        - name: search
+          in: query
+          required: false
+          description: Case-insensitive match on user email, name, or user id substring
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 25
+      responses:
+        "200":
+          description: Paginated investments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminInvestmentListPage"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: adminCreateInvestment
+      tags: [admin]
+      summary: Admin - Create a new investment for a user (multi-plan supported)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminCreateInvestmentRequest"
+      responses:
+        "201":
+          description: Investment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminInvestment"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User or plan not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/investments/{investmentId}:
+    patch:
+      operationId: adminPatchInvestment
+      tags: [admin]
+      summary: Admin - Set manual investment status or override systemActive
+      parameters:
+        - name: investmentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminPatchInvestmentRequest"
+      responses:
+        "200":
+          description: Updated investment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminInvestment"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Investment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/income-history:
+    get:
+      operationId: adminGetIncomeHistory
+      tags: [admin]
+      summary: Admin - Income history with optional user filter
+      parameters:
+        - name: userId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Income history page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncomeHistoryPage"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/settings:
+    get:
+      operationId: adminGetSettings
+      tags: [admin]
+      summary: Admin - Get platform settings (withdrawal fee)
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSettings"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: adminUpdateSettings
+      tags: [admin]
+      summary: Admin - Update withdrawal fee percentage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUpdateSettingsRequest"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSettings"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/dashboard:
+    get:
+      operationId: adminGetDashboard
+      tags: [admin]
+      summary: Admin - Get platform-wide stats
+      responses:
+        "200":
+          description: Admin dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminDashboardStats"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /cron/process-roi:
+    post:
+      operationId: processRoi
+      tags: [cron]
+      summary: Process daily ROI (Bearer admin JWT, or Bearer CRON_SECRET)
+      responses:
+        "200":
+          description: ROI processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CronResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required: [status]
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required: [message]
+
+    RegisterRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+        confirmPassword:
+          type: string
+          minLength: 6
+          description: Must match password; validated server-side and not stored.
+        phone:
+          type: string
+          description: Mobile number; digits only are stored after normalization (10–15 digits).
+      required: [name, email, password, confirmPassword, phone]
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required: [email, password]
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        token:
+          type: string
+      required: [user, token]
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        role:
+          type: string
+          enum: [user, admin]
+        walletBalance:
+          type: number
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, name, email, phone, role, walletBalance, isActive, createdAt]
+
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        role:
+          type: string
+          enum: [user, admin]
+        walletBalance:
+          type: number
+        isActive:
+          type: boolean
+        totalInvested:
+          type: number
+        totalEarned:
+          type: number
+        activeInvestments:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, name, email, phone, role, walletBalance, isActive, totalInvested, totalEarned, activeInvestments, createdAt]
+
+    Plan:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        amount:
+          type: number
+        dailyRoi:
+          type: number
+        maxReturn:
+          type: number
+        maxDays:
+          type: integer
+        isActive:
+          type: boolean
+        description:
+          type: string
+      required: [id, name, amount, dailyRoi, maxReturn, maxDays, isActive]
+
+    CreatePlanRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        amount:
+          type: number
+        dailyRoi:
+          type: number
+        maxReturn:
+          type: number
+        maxDays:
+          type: integer
+        isActive:
+          type: boolean
+        description:
+          type: string
+      required: [name, amount, dailyRoi, maxReturn, maxDays]
+
+    UpdatePlanRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        amount:
+          type: number
+        dailyRoi:
+          type: number
+        maxReturn:
+          type: number
+        maxDays:
+          type: integer
+        isActive:
+          type: boolean
+        description:
+          type: string
+
+    Investment:
+      type: object
+      properties:
+        id:
+          type: string
+        planId:
+          type: string
+        planName:
+          type: string
+        amount:
+          type: number
+        dailyRoi:
+          type: number
+        maxReturn:
+          type: number
+        totalEarned:
+          type: number
+        daysCompleted:
+          type: integer
+        maxDays:
+          type: integer
+        systemActive:
+          type: boolean
+        manualStatus:
+          type: string
+          enum: [active, inactive]
+        isActive:
+          type: boolean
+        status:
+          type: string
+          enum: [active, completed, manually_stopped]
+        startDate:
+          type: string
+          format: date-time
+        lastRoiUpdate:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, planId, planName, amount, dailyRoi, maxReturn, totalEarned, daysCompleted, maxDays, systemActive, manualStatus, isActive, status, startDate]
+
+    AdminInvestment:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        userName:
+          type: string
+        userEmail:
+          type: string
+        planId:
+          type: string
+        planName:
+          type: string
+        amount:
+          type: number
+        dailyRoi:
+          type: number
+        maxReturn:
+          type: number
+        totalEarned:
+          type: number
+        daysCompleted:
+          type: integer
+        maxDays:
+          type: integer
+        systemActive:
+          type: boolean
+        manualStatus:
+          type: string
+          enum: [active, inactive]
+        isActive:
+          type: boolean
+        status:
+          type: string
+          enum: [active, completed, manually_stopped]
+        startDate:
+          type: string
+          format: date-time
+        lastRoiUpdate:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, userId, userName, userEmail, planId, planName, amount, dailyRoi, maxReturn, totalEarned, daysCompleted, maxDays, systemActive, manualStatus, isActive, status, startDate]
+
+    AdminInvestmentListPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminInvestment"
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalPages:
+          type: integer
+      required: [items, total, page, pageSize, totalPages]
+
+    AdminCreateInvestmentRequest:
+      type: object
+      properties:
+        userId:
+          type: string
+        planId:
+          type: string
+      required: [userId, planId]
+
+    AdminPatchInvestmentRequest:
+      type: object
+      properties:
+        manualStatus:
+          type: string
+          enum: [active, inactive]
+        systemActive:
+          type: boolean
+      description: At least one field should be provided
+
+    IncomeHistoryEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        investmentId:
+          type: string
+        amount:
+          type: number
+        type:
+          type: string
+          enum: [ROI, ADJUSTMENT, WITHDRAWAL, INVESTMENT]
+        date:
+          type: string
+          format: date-time
+        planAmount:
+          type: number
+        dayNumber:
+          type: integer
+        note:
+          type: string
+          nullable: true
+        planName:
+          type: string
+          nullable: true
+        feeAmount:
+          type: number
+          nullable: true
+        netAmount:
+          type: number
+          nullable: true
+      required: [id, userId, investmentId, amount, type, date, planAmount, dayNumber]
+
+    IncomeHistoryPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/IncomeHistoryEntry"
+        nextCursor:
+          type: string
+          nullable: true
+      required: [items, nextCursor]
+
+    CreateInvestmentRequest:
+      type: object
+      properties:
+        planId:
+          type: string
+      required: [planId]
+
+    WithdrawalFeeSettings:
+      type: object
+      properties:
+        withdrawalFeePercent:
+          type: number
+          description: Percent deducted from requested gross (0–100). Default 10 when unset in database.
+      required: [withdrawalFeePercent]
+
+    AdminSettings:
+      type: object
+      properties:
+        withdrawalFeePercent:
+          type: number
+      required: [withdrawalFeePercent]
+
+    AdminUpdateSettingsRequest:
+      type: object
+      properties:
+        withdrawalFeePercent:
+          type: number
+          minimum: 0
+          maximum: 100
+      required: [withdrawalFeePercent]
+
+    Withdrawal:
+      type: object
+      properties:
+        id:
+          type: string
+        requestAmount:
+          type: number
+          description: Gross amount deducted from wallet
+        feePercent:
+          type: number
+        feeAmount:
+          type: number
+        netAmount:
+          type: number
+          description: Amount user receives after fee (admin pays this on approval)
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        bankDetails:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, requestAmount, feePercent, feeAmount, netAmount, status, createdAt]
+
+    AdminWithdrawal:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        userName:
+          type: string
+        userEmail:
+          type: string
+        requestAmount:
+          type: number
+        feePercent:
+          type: number
+        feeAmount:
+          type: number
+        netAmount:
+          type: number
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        bankDetails:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - id
+        - userId
+        - userName
+        - userEmail
+        - requestAmount
+        - feePercent
+        - feeAmount
+        - netAmount
+        - status
+        - createdAt
+
+    CreateWithdrawalRequest:
+      type: object
+      properties:
+        amount:
+          type: number
+          minimum: 500
+        bankDetails:
+          type: string
+      required: [amount]
+
+    AdminUpdateWithdrawalRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [approved, rejected]
+      required: [status]
+
+    AdminUpdateUserRequest:
+      type: object
+      properties:
+        walletBalance:
+          type: number
+        isActive:
+          type: boolean
+        name:
+          type: string
+
+    DashboardStats:
+      type: object
+      properties:
+        totalInvested:
+          type: number
+        totalEarned:
+          type: number
+        walletBalance:
+          type: number
+        activeInvestments:
+          type: integer
+        completedInvestments:
+          type: integer
+        pendingWithdrawals:
+          type: number
+      required: [totalInvested, totalEarned, walletBalance, activeInvestments, completedInvestments, pendingWithdrawals]
+
+    AdminDashboardStats:
+      type: object
+      properties:
+        totalUsers:
+          type: integer
+        activeUsers:
+          type: integer
+        totalInvested:
+          type: number
+        totalEarned:
+          type: number
+        activeInvestments:
+          type: integer
+        completedInvestments:
+          type: integer
+        pendingWithdrawals:
+          type: integer
+        pendingDeposits:
+          type: integer
+          description: Manual QR deposit requests awaiting admin action
+        totalWithdrawals:
+          type: number
+      required:
+        [
+          totalUsers,
+          activeUsers,
+          totalInvested,
+          totalEarned,
+          activeInvestments,
+          completedInvestments,
+          pendingWithdrawals,
+          pendingDeposits,
+          totalWithdrawals,
+        ]
+
+    PaymentSettings:
+      type: object
+      properties:
+        qrCodeImageUrl:
+          type: string
+        isPaymentEnabled:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [qrCodeImageUrl, isPaymentEnabled]
+
+    AdminUpdatePaymentSettingsRequest:
+      type: object
+      properties:
+        qrCodeImageUrl:
+          type: string
+          description: Public URL after upload; may be empty string to clear
+        isPaymentEnabled:
+          type: boolean
+
+    Deposit:
+      type: object
+      properties:
+        id:
+          type: string
+        amount:
+          type: number
+        transactionId:
+          type: string
+        screenshotUrl:
+          type: string
+        note:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, amount, transactionId, screenshotUrl, status, createdAt]
+
+    UserDepositsResponse:
+      type: object
+      properties:
+        pendingDeposit:
+          oneOf:
+            - $ref: "#/components/schemas/Deposit"
+            - type: "null"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/Deposit"
+      required: [pendingDeposit, history]
+
+    AdminDeposit:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        userName:
+          type: string
+        userEmail:
+          type: string
+        amount:
+          type: number
+        transactionId:
+          type: string
+        screenshotUrl:
+          type: string
+        note:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - id
+        - userId
+        - userName
+        - userEmail
+        - amount
+        - transactionId
+        - screenshotUrl
+        - status
+        - createdAt
+
+    AdminUpdateDepositRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [approved, rejected]
+      required: [status]
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        name:
+          type: string
+
+    CronResult:
+      type: object
+      properties:
+        message:
+          type: string
+        processedCount:
+          type: integer
+        skippedWeekend:
+          type: boolean
+        deactivatedCount:
+          type: integer
+      required: [message, processedCount, skippedWeekend, deactivatedCount]

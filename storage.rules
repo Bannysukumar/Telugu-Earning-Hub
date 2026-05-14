@@ -1,0 +1,11 @@
+rules_version = '2';
+/**
+ * All uploads go through the API (Firebase Admin SDK). Keep Storage closed to clients.
+ */
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

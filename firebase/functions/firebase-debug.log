@@ -1,0 +1,16 @@
+[debug] [2026-03-25T19:06:16.590Z] ----------------------------------------------------------------------
+[debug] [2026-03-25T19:06:16.592Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\munna\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js functions:log --only distributeDailyRoi --lines 15 --project telugu-earning-hub-2f74e
+[debug] [2026-03-25T19:06:16.592Z] CLI Version:   15.11.0
+[debug] [2026-03-25T19:06:16.592Z] Platform:      win32
+[debug] [2026-03-25T19:06:16.592Z] Node Version:  v25.2.1
+[debug] [2026-03-25T19:06:16.592Z] Time:          Thu Mar 26 2026 00:36:16 GMT+0530 (India Standard Time)
+[debug] [2026-03-25T19:06:16.592Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-03-25T19:06:16.756Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-03-25T19:06:16.756Z] > authorizing via signed-in user (bannysukumar@gmail.com)
+[debug] [2026-03-25T19:06:16.756Z] [iam] checking project telugu-earning-hub-2f74e for permissions ["firebase.projects.get","logging.logEntries.list","logging.logs.list"]
+[debug] [2026-03-25T19:06:16.757Z] Checked if tokens are valid: true, expires at: 1774468057418
+[debug] [2026-03-25T19:06:16.757Z] Checked if tokens are valid: true, expires at: 1774468057418
+[debug] [2026-03-25T19:06:16.758Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/telugu-earning-hub-2f74e:testIamPermissions [none]
+[debug] [2026-03-25T19:06:16.758Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/telugu-earning-hub-2f74e:testIamPermissions  x-goog-user-project=telugu-earning-hub-2f74e
+[debug] [2026-03-25T19:06:16.758Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/telugu-earning-hub-2f74e:testIamPermissions {"permissions":["firebase.projects.get","logging.logEntries.list","logging.logs.list"]}
