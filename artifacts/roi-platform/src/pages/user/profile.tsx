@@ -17,14 +17,22 @@ import { formatINR, formatDate } from "@/lib/utils";
 import { User, Mail, Wallet, Calendar, Save, Activity, Target, ChevronRight, Users, ArrowUp, Lock, Landmark, Trash2, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect, useMemo } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SavedBankAccount } from "@workspace/api-client-react";
 import { Link } from "wouter";
 import { usePlatformFeatures } from "@/hooks/use-platform-features";
+import { getGrowthDashboard } from "@/lib/growth-plan-api";
 
 function capProgressPercent(totalEarned: number, maxReturn: number): number {
   if (!Number.isFinite(maxReturn) || maxReturn <= 0) return 0;
   return Math.min(100, (totalEarned / maxReturn) * 100);
+}
+
+function growthStatusLabel(status: string | undefined): string {
+  if (status === "active") return "Active";
+  if (status === "completed") return "Completed";
+  if (status === "expired") return "Expired";
+  return "Pending";
 }
 
 export default function Profile() {
@@ -41,6 +49,11 @@ export default function Profile() {
     query: { ...getGetMyDirectLevelQueryOptions(), staleTime: 120_000 },
   });
   const queryClient = useQueryClient();
+  const { data: growthDash } = useQuery({
+    queryKey: ["growth-plan-dashboard"],
+    queryFn: getGrowthDashboard,
+    retry: 1,
+  });
 
   const sortedInvestments = useMemo(() => {
     if (!investments?.length) return [];
@@ -501,6 +514,21 @@ export default function Profile() {
                 </div>
               </div>
             </div>
+
+            {growthDash ? (
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <div className="bg-secondary/40 rounded-xl p-4">
+                  <p className="text-xs text-muted-foreground">Smart Growth Status</p>
+                  <p className="font-bold">{growthStatusLabel(growthDash.planStatus)}</p>
+                </div>
+                <div className="bg-secondary/40 rounded-xl p-4">
+                  <p className="text-xs text-muted-foreground">Smart Growth Days Remaining</p>
+                  <p className="font-bold tabular-nums">
+                    {growthDash.planStatus === "active" ? growthDash.remainingDays : "—"}
+                  </p>
+                </div>
+              </div>
+            ) : null}
 
             <div className="space-y-4">
               <div>

@@ -65,8 +65,6 @@ export type GrowthAdminSettings = {
   dailyRoi: number;
   maxEarnings: number;
   directBonus: number;
-  withdrawalFeePercent: number;
-  minWithdrawal: number;
   planStatus: "active" | "inactive";
   enableReentry: boolean;
   enableRoi: boolean;

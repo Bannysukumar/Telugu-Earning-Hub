@@ -11,7 +11,6 @@ import {
 import { requireAuth, type AuthedUser } from "../lib/auth.js";
 import {
   evaluateGrowthWithdrawalEligibility,
-  getGrowthPlanSettings,
   getGrowthUser,
 } from "../lib/growth-plan-db.js";
 
@@ -80,8 +79,7 @@ router.post("/", requireAuth, async (req, res) => {
 
   let feePercentOverride: number | undefined;
   if (growthCheck.appliesGrowthRules) {
-    const growthSettings = await getGrowthPlanSettings();
-    feePercentOverride = growthSettings.withdrawalFeePercent;
+    feePercentOverride = await getWithdrawalFeePercent();
   }
 
   try {

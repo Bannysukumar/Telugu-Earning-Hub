@@ -103,18 +103,6 @@ export default function AdminGrowthPlan() {
             <Label>Direct Bonus (₹)</Label>
             <Input type="number" value={form.directBonus} onChange={(e) => setNum("directBonus", e.target.value)} />
           </div>
-          <div className="space-y-2">
-            <Label>Min Withdrawal (₹)</Label>
-            <Input type="number" value={form.minWithdrawal} onChange={(e) => setNum("minWithdrawal", e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label>Withdrawal Fee (%)</Label>
-            <Input
-              type="number"
-              value={form.withdrawalFeePercent}
-              onChange={(e) => setNum("withdrawalFeePercent", e.target.value)}
-            />
-          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -7,6 +7,17 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Edit2, ShieldAlert } from "lucide-react";
 import { usePlatformFeatures } from "@/hooks/use-platform-features";
+type AdminUserWithGrowth = AdminUser & {
+  growthPlanStatus?: string;
+  growthRemainingDays?: number;
+};
+
+function growthStatusBadge(status?: string) {
+  if (status === "active") return <Badge variant="success">Active</Badge>;
+  if (status === "completed") return <Badge variant="default">Completed</Badge>;
+  if (status === "expired") return <Badge variant="warning">Expired</Badge>;
+  return <Badge variant="outline">Pending</Badge>;
+}
 
 function DirectLegList({
   members,
@@ -111,13 +122,17 @@ export default function AdminUsers() {
                 {binaryPlanEnabled ? <TableHead>Right directs</TableHead> : null}
                 <TableHead>Wallet Bal</TableHead>
                 <TableHead>Invested</TableHead>
+                <TableHead>Growth Status</TableHead>
+                <TableHead>Growth Days Left</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Joined</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredUsers.map((u) => (
+              {filteredUsers.map((rawUser) => {
+                const u = rawUser as AdminUserWithGrowth;
+                return (
                 <TableRow key={u.id}>
                   <TableCell>
                     <div className="font-medium">{u.name}</div>
@@ -140,6 +155,10 @@ export default function AdminUsers() {
                   ) : null}
                   <TableCell className="font-semibold text-emerald-400">{formatINR(u.walletBalance)}</TableCell>
                   <TableCell>{formatINR(u.totalInvested)}</TableCell>
+                  <TableCell>{growthStatusBadge(u.growthPlanStatus)}</TableCell>
+                  <TableCell className="tabular-nums">
+                    {u.growthPlanStatus === "active" ? `${u.growthRemainingDays ?? 0} days` : "—"}
+                  </TableCell>
                   <TableCell>
                     <Badge variant={u.isActive ? "success" : "destructive"}>
                       {u.isActive ? "Active" : "Banned"}
@@ -155,10 +174,11 @@ export default function AdminUsers() {
                     </Button>
                   </TableCell>
                 </TableRow>
-              ))}
+              );
+              })}
               {filteredUsers.length === 0 && !isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center p-8 text-muted-foreground">
+                  <TableCell colSpan={12} className="text-center p-8 text-muted-foreground">
                     No users match that search.
                   </TableCell>
                 </TableRow>

@@ -6,7 +6,11 @@ import {
   type Transaction,
 } from "firebase-admin/firestore";
 import { admin } from "./firebase-admin.js";
-import { toIso, type UserDoc } from "./firestore-db.js";
+import {
+  getMinWithdrawalAmount,
+  toIso,
+  type UserDoc,
+} from "./firestore-db.js";
 
 const db: Firestore = admin.firestore();
 
@@ -205,7 +209,10 @@ export async function evaluateGrowthWithdrawalEligibility(
   user: GrowthUserDoc & { id: string },
   requestAmount: number,
 ): Promise<GrowthWithdrawalCheck> {
-  const settings = await getGrowthPlanSettings();
+  const [settings, globalMinWithdrawal] = await Promise.all([
+    getGrowthPlanSettings(),
+    getMinWithdrawalAmount(),
+  ]);
   const gp = user.growthPlan;
   const participates =
     Boolean(gp && gp.planStatus !== "pending") ||
@@ -217,7 +224,7 @@ export async function evaluateGrowthWithdrawalEligibility(
       appliesGrowthRules: false,
       eligible: true,
       reason: null,
-      minWithdrawal: 500,
+      minWithdrawal: globalMinWithdrawal,
     };
   }
 
@@ -232,7 +239,7 @@ export async function evaluateGrowthWithdrawalEligibility(
       appliesGrowthRules: true,
       eligible: false,
       reason,
-      minWithdrawal: settings.minWithdrawal,
+      minWithdrawal: globalMinWithdrawal,
     };
   }
 
@@ -242,16 +249,16 @@ export async function evaluateGrowthWithdrawalEligibility(
       appliesGrowthRules: true,
       eligible: false,
       reason: "Need 2 Active Direct Referrals",
-      minWithdrawal: settings.minWithdrawal,
+      minWithdrawal: globalMinWithdrawal,
     };
   }
 
-  if (requestAmount < settings.minWithdrawal) {
+  if (requestAmount < globalMinWithdrawal) {
     return {
       appliesGrowthRules: true,
       eligible: false,
       reason: "Minimum withdrawal not reached",
-      minWithdrawal: settings.minWithdrawal,
+      minWithdrawal: globalMinWithdrawal,
     };
   }
 
@@ -260,7 +267,7 @@ export async function evaluateGrowthWithdrawalEligibility(
       appliesGrowthRules: true,
       eligible: false,
       reason: "Insufficient wallet balance",
-      minWithdrawal: settings.minWithdrawal,
+      minWithdrawal: globalMinWithdrawal,
     };
   }
 
@@ -268,7 +275,7 @@ export async function evaluateGrowthWithdrawalEligibility(
     appliesGrowthRules: true,
     eligible: true,
     reason: null,
-    minWithdrawal: settings.minWithdrawal,
+    minWithdrawal: globalMinWithdrawal,
   };
 }
 

@@ -105,6 +105,26 @@ function formatAdminUser(
   userInvestments: InvestmentDoc[],
   legsByReferrer: Map<string, { left: AdminDirectMember[]; right: AdminDirectMember[] }>,
 ) {
+  const growth = (user as UserDoc & {
+    growthPlan?: {
+      planStatus?: string;
+      planEndDate?: { toDate?: () => Date } | Date | null;
+    };
+  }).growthPlan;
+  const growthPlanStatus = String(growth?.planStatus ?? "pending");
+  let growthRemainingDays = 0;
+  if (growthPlanStatus === "active" && growth?.planEndDate) {
+    const end =
+      growth.planEndDate instanceof Date
+        ? growth.planEndDate
+        : growth.planEndDate?.toDate?.() ?? null;
+    if (end) {
+      growthRemainingDays = Math.max(
+        0,
+        Math.ceil((end.getTime() - Date.now()) / (24 * 60 * 60 * 1000)),
+      );
+    }
+  }
   const legs = legsByReferrer.get(user.id) ?? { left: [], right: [] };
   return {
     id: user.id,
@@ -119,6 +139,8 @@ function formatAdminUser(
     activeInvestments: userInvestments.filter((inv) => inv.isActive).length,
     createdAt: toIso(user.createdAt),
     referralCode: user.referralCode?.trim() || null,
+    growthPlanStatus,
+    growthRemainingDays,
     directLeft: legs.left,
     directRight: legs.right,
   };
