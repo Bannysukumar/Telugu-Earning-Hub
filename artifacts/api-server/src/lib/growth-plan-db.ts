@@ -13,7 +13,7 @@ const db: Firestore = admin.firestore();
 export const GROWTH_SETTINGS_DOC_ID = "global";
 export const GROWTH_INCOME_CYCLE_ID = "__growth_plan__";
 
-export type GrowthPlanStatus = "none" | "active" | "expired" | "completed" | "inactive";
+export type GrowthPlanStatus = "pending" | "active" | "expired" | "completed";
 
 export type GrowthPlanUserState = {
   planStatus: GrowthPlanStatus;
@@ -92,7 +92,7 @@ export type GrowthUserDoc = UserDoc & {
 
 export function emptyGrowthPlanState(settings: GrowthPlanSettingsDoc): GrowthPlanUserState {
   return {
-    planStatus: "none",
+    planStatus: "pending",
     planAmount: settings.planAmount,
     planStartDate: null,
     planEndDate: null,
@@ -119,10 +119,14 @@ export function normalizeGrowthPlanState(
 ): GrowthPlanUserState {
   const base = emptyGrowthPlanState(settings);
   if (!raw) return base;
+  const legacyStatus = String((raw as { planStatus?: unknown }).planStatus ?? "");
   return {
     ...base,
     ...raw,
-    planStatus: (raw.planStatus as GrowthPlanStatus) ?? base.planStatus,
+    planStatus:
+      legacyStatus === "none" || legacyStatus === "inactive"
+        ? "pending"
+        : ((raw.planStatus as GrowthPlanStatus) ?? base.planStatus),
     earningCap: Number(raw.earningCap ?? settings.maxEarnings),
     planAmount: Number(raw.planAmount ?? settings.planAmount),
     planDuration: Number(raw.planDuration ?? settings.planDuration),
@@ -185,7 +189,7 @@ export async function countActiveGrowthDirects(sponsorId: string): Promise<numbe
   let count = 0;
   for (const doc of snap.docs) {
     const gp = (doc.data() as GrowthUserDoc).growthPlan;
-    if (gp?.planStatus === "active") count += 1;
+    if (gp?.planStatus === "active" && Number(gp.planAmount ?? 0) === GROWTH_PLAN_DEFAULTS.planAmount) count += 1;
   }
   return count;
 }
@@ -204,7 +208,9 @@ export async function evaluateGrowthWithdrawalEligibility(
   const settings = await getGrowthPlanSettings();
   const gp = user.growthPlan;
   const participates =
-    Boolean(gp && gp.planStatus !== "none") || Number(gp?.reEntryCount ?? 0) > 0 || Number(gp?.currentCycle ?? 0) > 0;
+    Boolean(gp && gp.planStatus !== "pending") ||
+    Number(gp?.reEntryCount ?? 0) > 0 ||
+    Number(gp?.currentCycle ?? 0) > 0;
 
   if (!participates) {
     return {
@@ -221,9 +227,7 @@ export async function evaluateGrowthWithdrawalEligibility(
         ? "Plan expired"
         : gp?.planStatus === "completed"
           ? "Plan completed"
-          : gp?.planStatus === "inactive"
-            ? "Activate your plan"
-            : "Activate your plan";
+          : "Activate your plan";
     return {
       appliesGrowthRules: true,
       eligible: false,
@@ -278,7 +282,9 @@ async function refreshSponsorDirectCount(tx: Transaction, sponsorId: string): Pr
   let activeDirectCount = 0;
   for (const doc of directsSnap.docs) {
     const gp = (doc.data() as GrowthUserDoc).growthPlan;
-    if (gp?.planStatus === "active") activeDirectCount += 1;
+    if (gp?.planStatus === "active" && Number(gp.planAmount ?? 0) === GROWTH_PLAN_DEFAULTS.planAmount) {
+      activeDirectCount += 1;
+    }
   }
   const gp = normalizeGrowthPlanState(sponsor.growthPlan, GROWTH_PLAN_DEFAULTS as GrowthPlanSettingsDoc);
   const isEligibleWithdrawal = gp.planStatus === "active" && activeDirectCount >= 2;
@@ -353,14 +359,14 @@ export async function activateGrowthPlan(
       throw new GrowthPlanError("You already have an active Smart Growth Plan", "ALREADY_ACTIVE");
     }
     const canEnter =
-      gp.planStatus === "none" ||
+      gp.planStatus === "pending" ||
       gp.planStatus === "expired" ||
       gp.planStatus === "completed" ||
       gp.canReEnter;
     if (!canEnter) {
       throw new GrowthPlanError("Re-entry is not allowed right now", "REENTRY_BLOCKED");
     }
-    if (!settings.enableReentry && gp.planStatus !== "none" && gp.currentCycle > 0) {
+    if (!settings.enableReentry && gp.planStatus !== "pending" && gp.currentCycle > 0) {
       throw new GrowthPlanError("Re-entry is disabled by admin", "REENTRY_DISABLED");
     }
 
@@ -386,7 +392,7 @@ export async function activateGrowthPlan(
       directIncome: 0,
       withdrawableBalance: 0,
       activeDirectCount: gp.activeDirectCount,
-      reEntryCount: gp.planStatus === "none" ? gp.reEntryCount : gp.reEntryCount + 1,
+      reEntryCount: gp.planStatus === "pending" ? gp.reEntryCount : gp.reEntryCount + 1,
       earningCap: settings.maxEarnings,
       canReEnter: false,
       currentCycle: cycleNumber,
@@ -446,21 +452,21 @@ export async function activateGrowthPlan(
           const credited = updatedSponsorGp.directIncome - sponsorGp.directIncome;
           sponsorWallet += credited;
           historyAmount = credited;
-        } else {
-          historyAmount = settings.directBonus;
-          sponsorWallet += settings.directBonus;
-          updatedSponsorGp = {
-            ...sponsorGp,
-            lifetimeIncome: sponsorGp.lifetimeIncome + settings.directBonus,
-            directIncome: sponsorGp.directIncome + settings.directBonus,
-            withdrawableBalance: sponsorGp.withdrawableBalance + settings.directBonus,
-          };
         }
         tx.update(sponsorRef, {
           walletBalance: sponsorWallet,
           growthPlan: updatedSponsorGp,
           updatedAt: FieldValue.serverTimestamp(),
         });
+        if (historyAmount > 0 && sponsorGp.cycleId) {
+          tx.update(db.collection("growthCycles").doc(sponsorGp.cycleId), {
+            currentPlanIncome: updatedSponsorGp.currentPlanIncome,
+            directIncome: updatedSponsorGp.directIncome,
+            planStatus: updatedSponsorGp.planStatus,
+            updatedAt: now,
+            completedAt: updatedSponsorGp.planStatus === "completed" ? now : null,
+          });
+        }
         if (historyAmount > 0) {
           const bonusRef = db.collection("incomeHistory").doc();
           tx.set(bonusRef, {
@@ -499,7 +505,7 @@ export async function listGrowthDirects(
       id: doc.id,
       name: u.name,
       email: u.email,
-      planStatus: (u.growthPlan?.planStatus ?? "none") as GrowthPlanStatus,
+      planStatus: (u.growthPlan?.planStatus ?? "pending") as GrowthPlanStatus,
     };
   });
 }
@@ -543,7 +549,7 @@ export function formatGrowthDashboard(
     lifetimeIncome: gp.lifetimeIncome,
     roiIncome: gp.roiIncome,
     directIncome: gp.directIncome,
-    withdrawableBalance: user.walletBalance,
+    withdrawableBalance: gp.withdrawableBalance,
     walletBalance: user.walletBalance,
     totalDirects: directs.length,
     activeDirects,

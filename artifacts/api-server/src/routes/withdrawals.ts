@@ -43,7 +43,7 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 const createSchema = z.object({
-  amount: z.number().min(500, "Minimum withdrawal is ₹500"),
+  amount: z.number().positive("Amount must be greater than 0"),
   bankDetails: z.string().optional(),
 });
 

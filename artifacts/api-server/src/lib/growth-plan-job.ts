@@ -55,7 +55,7 @@ async function countActiveDirectsForUser(sponsorId: string): Promise<number> {
   let count = 0;
   for (const doc of snap.docs) {
     const gp = (doc.data() as GrowthUserDoc).growthPlan;
-    if (gp?.planStatus === "active") count += 1;
+    if (gp?.planStatus === "active" && Number(gp.planAmount ?? 0) === 200) count += 1;
   }
   return count;
 }
@@ -82,16 +82,11 @@ export async function runGrowthPlanDailyJob(now: Date = new Date()): Promise<Gro
 
   for (const doc of usersSnap.docs) {
     const user = doc.data() as GrowthUserDoc;
-    if (!user.growthPlan || user.growthPlan.planStatus === "none") continue;
+    if (!user.growthPlan || user.growthPlan.planStatus === "pending") continue;
 
     let gp = growthPlanStateFromData(user, settings);
     if (gp.planStatus !== "active") continue;
     if (!user.isActive) {
-      gp = { ...gp, planStatus: "inactive", isEligibleWithdrawal: false };
-      await db.collection("users").doc(doc.id).update({
-        growthPlan: gp,
-        updatedAt: FieldValue.serverTimestamp(),
-      });
       skippedCount += 1;
       continue;
     }
@@ -134,6 +129,16 @@ export async function runGrowthPlanDailyJob(now: Date = new Date()): Promise<Gro
     }
 
     if (gp.lastRoiProcessed === todayKey) {
+      skippedCount += 1;
+      continue;
+    }
+    try {
+      await db.collection("growthRoiDailyLocks").doc(`${todayKey}_${doc.id}`).create({
+        userId: doc.id,
+        dateKey: todayKey,
+        createdAt: Timestamp.now(),
+      });
+    } catch {
       skippedCount += 1;
       continue;
     }
