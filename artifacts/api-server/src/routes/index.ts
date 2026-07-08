@@ -9,10 +9,12 @@ import adminRouter from "./admin.js";
 import adminGrowthPlanRouter from "./admin-growth-plan.js";
 import cronRouter from "./cron.js";
 import growthPlanRouter from "./growth-plan.js";
+import platformRouter from "./platform.js";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use("/platform", platformRouter);
 router.use("/auth", authRouter);
 router.use("/plans", plansRouter);
 router.use("/investments", investmentsRouter);
