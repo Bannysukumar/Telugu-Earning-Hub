@@ -73,6 +73,10 @@ export type GrowthAdminSettings = {
   enableReferralBonus: boolean;
 };
 
+export function getGrowthPlanSettingsPublic() {
+  return growthFetch<GrowthAdminSettings>("/api/growth-plan/settings");
+}
+
 export function getGrowthDashboard() {
   return growthFetch<GrowthDashboard>("/api/growth-plan/dashboard");
 }
@@ -111,5 +115,18 @@ export function updateAdminGrowthSettings(data: Partial<GrowthAdminSettings>) {
 export function migrateGrowthUsers() {
   return growthFetch<{ message: string; updated: number }>("/api/admin/growth-plan/migrate-users", {
     method: "POST",
+  });
+}
+
+export function adminActivateGrowthPlan(userId: string, deductFromWallet = false) {
+  return growthFetch<{
+    cycleId: string;
+    cycleNumber: number;
+    userId: string;
+    deductFromWallet: boolean;
+    planStatus: string;
+  }>("/api/admin/growth-plan/activate", {
+    method: "POST",
+    body: JSON.stringify({ userId, deductFromWallet }),
   });
 }

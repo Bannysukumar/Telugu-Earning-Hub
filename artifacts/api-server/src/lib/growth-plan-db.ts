@@ -326,7 +326,16 @@ export class GrowthPlanError extends Error {
   }
 }
 
-export async function activateGrowthPlan(userId: string): Promise<{ cycleId: string; cycleNumber: number }> {
+export type ActivateGrowthPlanOptions = {
+  /** When false (admin gift), wallet is not deducted. Default true. */
+  deductFromWallet?: boolean;
+};
+
+export async function activateGrowthPlan(
+  userId: string,
+  options: ActivateGrowthPlanOptions = {},
+): Promise<{ cycleId: string; cycleNumber: number }> {
+  const deductFromWallet = options.deductFromWallet !== false;
   const settings = await getGrowthPlanSettings();
   if (settings.planStatus !== "active") {
     throw new GrowthPlanError("Smart Growth Plan is not active", "PLAN_INACTIVE");
@@ -356,7 +365,7 @@ export async function activateGrowthPlan(userId: string): Promise<{ cycleId: str
     }
 
     const balance = Number(user.walletBalance ?? 0);
-    if (balance < settings.planAmount) {
+    if (deductFromWallet && balance < settings.planAmount) {
       throw new GrowthPlanError("Insufficient wallet balance", "INSUFFICIENT_BALANCE");
     }
 
@@ -404,7 +413,7 @@ export async function activateGrowthPlan(userId: string): Promise<{ cycleId: str
     } satisfies GrowthCycleDoc);
 
     tx.update(userRef, {
-      walletBalance: balance - settings.planAmount,
+      ...(deductFromWallet ? { walletBalance: balance - settings.planAmount } : {}),
       growthPlan: nextState,
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -413,11 +422,13 @@ export async function activateGrowthPlan(userId: string): Promise<{ cycleId: str
     tx.set(incomeRef, {
       userId,
       investmentId: GROWTH_INCOME_CYCLE_ID,
-      amount: -settings.planAmount,
+      amount: deductFromWallet ? -settings.planAmount : 0,
       type: "INVESTMENT",
       planAmount: settings.planAmount,
       dayNumber: 0,
-      note: `${settings.planName} activation · Cycle ${cycleNumber}`,
+      note: deductFromWallet
+        ? `${settings.planName} activation · Cycle ${cycleNumber}`
+        : `${settings.planName} admin activation · Cycle ${cycleNumber}`,
       date: now,
     });
 

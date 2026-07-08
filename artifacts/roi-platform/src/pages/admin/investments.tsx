@@ -26,9 +26,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  adminActivateGrowthPlan,
+  getAdminGrowthSettings,
+  type GrowthAdminSettings,
+} from "@/lib/growth-plan-api";
 
 const INVESTMENTS_QUERY_PREFIX = "/api/admin/investments" as const;
 const PAGE_SIZE = 25;
+const SMART_GROWTH_PLAN_ID = "__smart_growth__";
 
 function statusLabel(s: string) {
   if (s === "manually_stopped") return "Manual stop";
@@ -47,8 +53,25 @@ export default function AdminInvestments() {
   const [createUserId, setCreateUserId] = useState<string>("");
   const [createPlanId, setCreatePlanId] = useState<string>("");
   const [userPickQuery, setUserPickQuery] = useState("");
+  const [isActivatingGrowth, setIsActivatingGrowth] = useState(false);
+  const [growthSettings, setGrowthSettings] = useState<GrowthAdminSettings | null>(null);
 
   const [detailsInv, setDetailsInv] = useState<AdminInvestment | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const s = await getAdminGrowthSettings();
+        if (!cancelled) setGrowthSettings(s);
+      } catch {
+        if (!cancelled) setGrowthSettings(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchInput.trim()), 400);
@@ -105,6 +128,23 @@ export default function AdminInvestments() {
       toast.error("Select a user and an active plan.");
       return;
     }
+
+    if (createPlanId === SMART_GROWTH_PLAN_ID) {
+      setIsActivatingGrowth(true);
+      void adminActivateGrowthPlan(createUserId, false)
+        .then((res) => {
+          toast.success(
+            `Smart Growth activated (cycle ${res.cycleNumber}). Wallet was not deducted.`,
+          );
+          setCreatePlanId("");
+        })
+        .catch((err: unknown) =>
+          toast.error(err instanceof Error ? err.message : "Could not activate Smart Growth"),
+        )
+        .finally(() => setIsActivatingGrowth(false));
+      return;
+    }
+
     createInvestment(
       { data: { userId: createUserId, planId: createPlanId } },
       {
@@ -119,6 +159,9 @@ export default function AdminInvestments() {
     );
   };
 
+  const activateBusy = isCreating || isActivatingGrowth;
+  const growthPlanOptionActive = growthSettings?.planStatus === "active";
+
   return (
     <AppLayout isAdmin>
       <div className="flex flex-col gap-8">
@@ -132,7 +175,8 @@ export default function AdminInvestments() {
         <Card className="p-6 space-y-4">
           <h3 className="text-lg font-semibold">Activate plan for user</h3>
           <p className="text-sm text-muted-foreground">
-            Creates a new investment (separate from any existing). Max return is set to 2× plan principal; ROI tracks independently.
+            Creates a new investment (separate from any existing). Max return is set to 2× plan principal; ROI tracks
+            independently. Smart Growth ₹200 can also be activated here (no wallet debit, same as other admin gifts).
           </p>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
@@ -180,6 +224,14 @@ export default function AdminInvestments() {
                   <SelectValue placeholder={plansLoading ? "Loading plans…" : "Choose plan"} />
                 </SelectTrigger>
                 <SelectContent className="max-h-72">
+                  {growthPlanOptionActive && growthSettings ? (
+                    <SelectItem value={SMART_GROWTH_PLAN_ID}>
+                      <span className="font-medium">{growthSettings.planName}</span>
+                      <span className="text-xs text-muted-foreground block">
+                        {formatINR(growthSettings.planAmount)} · {formatINR(growthSettings.dailyRoi)}/day · Smart Growth
+                      </span>
+                    </SelectItem>
+                  ) : null}
                   {activePlans.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       <span className="font-medium">{p.name}</span>
@@ -188,7 +240,7 @@ export default function AdminInvestments() {
                       </span>
                     </SelectItem>
                   ))}
-                  {activePlans.length === 0 ? (
+                  {!growthPlanOptionActive && activePlans.length === 0 ? (
                     <div className="px-2 py-3 text-sm text-muted-foreground">No active plans.</div>
                   ) : null}
                 </SelectContent>
@@ -197,8 +249,8 @@ export default function AdminInvestments() {
           </div>
           <Button
             onClick={onActivatePlan}
-            disabled={isCreating || !createUserId || !createPlanId}
-            isLoading={isCreating}
+            disabled={activateBusy || !createUserId || !createPlanId}
+            isLoading={activateBusy}
             className="w-full sm:w-auto"
           >
             Activate plan
