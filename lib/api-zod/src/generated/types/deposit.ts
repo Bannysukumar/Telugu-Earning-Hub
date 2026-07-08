@@ -13,6 +13,7 @@ export interface Deposit {
   transactionId: string;
   screenshotUrl: string;
   note?: string | null;
+  payeeUpiId?: string | null;
   status: DepositStatus;
   createdAt: Date;
   updatedAt?: Date | null;

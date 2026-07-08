@@ -37,6 +37,47 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
+  /platform/features:
+    get:
+      operationId: getPlatformFeatures
+      tags: [health]
+      summary: Public platform feature flags (binary plan visibility)
+      responses:
+        "200":
+          description: Feature flags
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformFeatures"
+
+  /auth/referral-lookup:
+    get:
+      operationId: getReferralLookup
+      tags: [auth]
+      summary: Validate a sponsor referral code and return the sponsor display name (before register)
+      parameters:
+        - name: code
+          in: query
+          required: true
+          description: Sponsor referral code (case-insensitive)
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 32
+      responses:
+        "200":
+          description: Whether the code matches an active sponsor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferralLookupResponse"
+        "400":
+          description: Missing or invalid query
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /auth/register:
     post:
       operationId: register
@@ -163,7 +204,7 @@ paths:
     post:
       operationId: createInvestment
       tags: [investments]
-      summary: Create a new investment
+      summary: Activate a plan (deducts from your wallet). Optionally activate for another member you sponsor.
       requestBody:
         required: true
         content:
@@ -179,6 +220,18 @@ paths:
                 $ref: "#/components/schemas/Investment"
         "400":
           description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Cannot activate for inactive or admin target
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Plan or beneficiary not found
           content:
             application/json:
               schema:
@@ -290,6 +343,37 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /user/change-password:
+    put:
+      operationId: changePassword
+      tags: [users]
+      summary: Change account password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "200":
+          description: Password updated; returns a fresh login token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangePasswordResponse"
+        "400":
+          description: Invalid input or weak password
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated or current password incorrect
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /user/profile:
     put:
       operationId: updateProfile
@@ -310,6 +394,215 @@ paths:
                 $ref: "#/components/schemas/User"
         "401":
           description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /user/bank-accounts:
+    get:
+      operationId: listMyBankAccounts
+      tags: [users]
+      summary: List saved withdrawal bank accounts
+      responses:
+        "200":
+          description: Saved accounts (for reuse on withdrawal)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SavedBankAccount"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createMyBankAccount
+      tags: [users]
+      summary: Add or merge a saved bank account (by IFSC + account number)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSavedBankAccountRequest"
+      responses:
+        "201":
+          description: Account saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavedBankAccount"
+        "400":
+          description: Invalid input or account limit reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /user/bank-accounts/{accountId}:
+    put:
+      operationId: updateMyBankAccount
+      tags: [users]
+      summary: Update a saved bank account
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSavedBankAccountRequest"
+      responses:
+        "200":
+          description: Updated account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavedBankAccount"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Account not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Duplicate IFSC + account number vs another saved entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteMyBankAccount
+      tags: [users]
+      summary: Remove a saved bank account
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Account not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /user/wallet/transfer:
+    post:
+      operationId: transferWalletToUser
+      tags: [users]
+      summary: Transfer wallet balance to another member
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletTransferRequest"
+      responses:
+        "200":
+          description: Transfer completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletTransferResponse"
+        "400":
+          description: Invalid input or transfer rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Recipient not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /user/members/resolve:
+    get:
+      operationId: resolveMemberForTransfer
+      tags: [users]
+      summary: Resolve another member by user id, email, or referral code (for transfers / gifting)
+      parameters:
+        - name: userId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: email
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Member email (trimmed; lookup is case-insensitive via Firebase Auth when needed)
+        - name: referralCode
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Member found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolvedMember"
+        "400":
+          description: Invalid or ambiguous query
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Member not found
           content:
             application/json:
               schema:
@@ -346,6 +639,90 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /user/direct-level:
+    get:
+      operationId: getMyDirectLevel
+      tags: [users]
+      summary: Direct referrals (sponsor level) for the current user
+      responses:
+        "200":
+          description: List of direct referrals with activation stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirectLevelResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /user/sponsor-tree:
+    get:
+      operationId: getMySponsorTree
+      summary: Unilevel sponsor tree for investment-plan genealogy
+      tags: [User]
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: maxDepth
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 8
+            default: 5
+      responses:
+        "200":
+          description: Sponsor tree rooted at the current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SponsorTreeResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /user/binary-tree:
+    get:
+      operationId: getMyBinaryTree
+      tags: [users]
+      summary: Binary placement tree under the current user (left/right legs)
+      parameters:
+        - name: maxDepth
+          in: query
+          required: false
+          description: Maximum depth below you to load (1 = only your immediate binary children)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 8
+            default: 5
+      responses:
+        "200":
+          description: Recursive binary tree rooted at the current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BinaryTreeResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /user/payment-settings:
     get:
       operationId: getUserPaymentSettings
@@ -360,6 +737,43 @@ paths:
                 $ref: "#/components/schemas/PaymentSettings"
         "401":
           description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /user/deposits/generate-payment:
+    post:
+      operationId: generateDepositPayment
+      tags: [users]
+      summary: Create dynamic UPI payment link and QR payload for a deposit amount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateDepositPaymentRequest"
+      responses:
+        "200":
+          description: UPI deep link for the amount (one random UPI ID from admin list)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateDepositPaymentResponse"
+        "400":
+          description: Invalid amount or deposits disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: UPI not configured
           content:
             application/json:
               schema:
@@ -512,6 +926,165 @@ paths:
                   $ref: "#/components/schemas/AdminUser"
         "403":
           description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/withdrawal-fees:
+    get:
+      operationId: adminGetWithdrawalFees
+      tags: [admin]
+      summary: List members with global and per-user withdrawal fee
+      responses:
+        "200":
+          description: Withdrawal fee list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminWithdrawalFeeList"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/users/{userId}/withdrawal-fee:
+    put:
+      operationId: adminSetUserWithdrawalFee
+      tags: [admin]
+      summary: Set a custom withdrawal fee for one member
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminSetUserWithdrawalFeeRequest"
+      responses:
+        "200":
+          description: Updated fee
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserWithdrawalFee"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: adminClearUserWithdrawalFee
+      tags: [admin]
+      summary: Remove custom withdrawal fee (use global default)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cleared custom fee
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserWithdrawalFee"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/users/{userId}/sponsor-tree:
+    get:
+      operationId: adminGetUserSponsorTree
+      summary: Unilevel sponsor tree for a member (investment plan team)
+      tags: [Admin]
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: maxDepth
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 8
+            default: 5
+      responses:
+        "200":
+          description: Sponsor tree
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SponsorTreeResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/users/{userId}/binary-tree:
+    get:
+      operationId: adminGetUserBinaryTree
+      tags: [admin]
+      summary: Admin - Get binary tree for any user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: maxDepth
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 8
+            default: 5
+      responses:
+        "200":
+          description: Binary tree rooted at the selected user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BinaryTreeResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User not found
           content:
             application/json:
               schema:
@@ -871,11 +1444,59 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /admin/level-income:
+    get:
+      operationId: adminGetLevelIncome
+      tags: [admin]
+      summary: Admin - Get global level income schedule
+      responses:
+        "200":
+          description: Level income tiers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LevelIncomeConfig"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: adminUpdateLevelIncome
+      tags: [admin]
+      summary: Admin - Replace global level income tiers (up to 32 levels)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUpdateLevelIncomeRequest"
+      responses:
+        "200":
+          description: Updated level income config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LevelIncomeConfig"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /admin/settings:
     get:
       operationId: adminGetSettings
       tags: [admin]
-      summary: Admin - Get platform settings (withdrawal fee)
+      summary: Admin - Get platform settings (fees)
       responses:
         "200":
           description: Settings
@@ -892,7 +1513,7 @@ paths:
     put:
       operationId: adminUpdateSettings
       tags: [admin]
-      summary: Admin - Update withdrawal fee percentage
+      summary: Admin - Update fee percentages (withdrawal and/or peer send / gift plan)
       requestBody:
         required: true
         content:
@@ -980,6 +1601,19 @@ components:
           type: string
       required: [message]
 
+    ReferralLookupResponse:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        sponsorName:
+          type: string
+          description: Sponsor full name when valid is true
+        error:
+          type: string
+          description: Reason when valid is false
+      required: [valid]
+
     RegisterRequest:
       type: object
       properties:
@@ -998,7 +1632,16 @@ components:
         phone:
           type: string
           description: Mobile number; digits only are stored after normalization (10–15 digits).
-      required: [name, email, password, confirmPassword, phone]
+        referralCode:
+          type: string
+          minLength: 2
+          maxLength: 32
+          description: Sponsor referral code (case-insensitive). Must match an existing user; validate with GET /auth/referral-lookup before submit.
+        binaryPreferredSide:
+          type: string
+          enum: [left, right]
+          description: Required when binary plan is enabled; join as sponsor's immediate left or right leg.
+      required: [name, email, password, confirmPassword, phone, referralCode]
 
     LoginRequest:
       type: object
@@ -1040,7 +1683,35 @@ components:
         createdAt:
           type: string
           format: date-time
-      required: [id, name, email, phone, role, walletBalance, isActive, createdAt]
+        referralCode:
+          type: string
+          nullable: true
+          description: Uppercase shareable code for referral signup links.
+        qualifiedDirectReferrals:
+          type: integer
+          description: Count of direct referrals who activated at least one investment (withdrawal gate).
+        referrerId:
+          type: string
+          nullable: true
+          description: Direct sponsor user id when joined with a referral code.
+        referrerName:
+          type: string
+          nullable: true
+          description: Display name of direct sponsor (upline), when referred.
+        referrerEmail:
+          type: string
+          nullable: true
+          description: Email of direct sponsor (upline), when referred.
+      required: [id, name, email, phone, role, walletBalance, isActive, createdAt, referralCode, qualifiedDirectReferrals, referrerId, referrerName, referrerEmail]
+
+    AdminDirectMember:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+      required: [id, name]
 
     AdminUser:
       type: object
@@ -1069,7 +1740,21 @@ components:
         createdAt:
           type: string
           format: date-time
-      required: [id, name, email, phone, role, walletBalance, isActive, totalInvested, totalEarned, activeInvestments, createdAt]
+        referralCode:
+          type: string
+          nullable: true
+          description: User's shareable referral code (uppercase), if assigned.
+        directLeft:
+          type: array
+          description: Users who joined directly on this member's left leg (by referrerId + binarySide).
+          items:
+            $ref: "#/components/schemas/AdminDirectMember"
+        directRight:
+          type: array
+          description: Users who joined directly on this member's right leg (by referrerId + binarySide).
+          items:
+            $ref: "#/components/schemas/AdminDirectMember"
+      required: [id, name, email, phone, role, walletBalance, isActive, totalInvested, totalEarned, activeInvestments, createdAt, referralCode, directLeft, directRight]
 
     Plan:
       type: object
@@ -1090,7 +1775,33 @@ components:
           type: boolean
         description:
           type: string
-      required: [id, name, amount, dailyRoi, maxReturn, maxDays, isActive]
+        directBonus:
+          type: number
+          description: Rupees paid to direct sponsor on referral's first investment (default 20).
+        binaryPairVolume:
+          type: integer
+          description: BV required on each leg to form one binary pair (default 200).
+        binaryPairPayout:
+          type: number
+          description: Rupees paid per binary pair to upline (default 80).
+        roiPoolPercent:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Percent of plan dailyRoi credited each ROI day (default 100).
+        levelIncomeEnabled:
+          type: boolean
+          description: When true, downline daily ROI pays uplines per this plan's level-income schedule (or global default when tiers are omitted).
+        levelIncomeTiers:
+          type: array
+          description: Per-plan level schedule. Levels with 0% are disabled and receive no payout.
+          items:
+            $ref: "#/components/schemas/LevelIncomeTier"
+        planKind:
+          type: string
+          enum: [mlm, standalone]
+          description: Standalone = ROI only, no referral/binary, no gift activation, no 2-referral withdrawal gate.
+      required: [id, name, amount, dailyRoi, maxReturn, maxDays, isActive, directBonus, binaryPairVolume, binaryPairPayout, roiPoolPercent, levelIncomeEnabled]
 
     CreatePlanRequest:
       type: object
@@ -1109,6 +1820,25 @@ components:
           type: boolean
         description:
           type: string
+        directBonus:
+          type: number
+        binaryPairVolume:
+          type: integer
+        binaryPairPayout:
+          type: number
+        roiPoolPercent:
+          type: integer
+          minimum: 1
+          maximum: 100
+        levelIncomeEnabled:
+          type: boolean
+        levelIncomeTiers:
+          type: array
+          items:
+            $ref: "#/components/schemas/LevelIncomeTier"
+        planKind:
+          type: string
+          enum: [mlm, standalone]
       required: [name, amount, dailyRoi, maxReturn, maxDays]
 
     UpdatePlanRequest:
@@ -1128,6 +1858,25 @@ components:
           type: boolean
         description:
           type: string
+        directBonus:
+          type: number
+        binaryPairVolume:
+          type: integer
+        binaryPairPayout:
+          type: number
+        roiPoolPercent:
+          type: integer
+          minimum: 1
+          maximum: 100
+        levelIncomeEnabled:
+          type: boolean
+        levelIncomeTiers:
+          type: array
+          items:
+            $ref: "#/components/schemas/LevelIncomeTier"
+        planKind:
+          type: string
+          enum: [mlm, standalone]
 
     Investment:
       type: object
@@ -1167,7 +1916,12 @@ components:
           type: string
           format: date-time
           nullable: true
-      required: [id, planId, planName, amount, dailyRoi, maxReturn, totalEarned, daysCompleted, maxDays, systemActive, manualStatus, isActive, status, startDate]
+        roiPoolPercent:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Snapshot from plan at activation; percent of dailyRoi paid each ROI day.
+      required: [id, planId, planName, amount, dailyRoi, maxReturn, totalEarned, daysCompleted, maxDays, systemActive, manualStatus, isActive, status, startDate, roiPoolPercent]
 
     AdminInvestment:
       type: object
@@ -1213,7 +1967,11 @@ components:
           type: string
           format: date-time
           nullable: true
-      required: [id, userId, userName, userEmail, planId, planName, amount, dailyRoi, maxReturn, totalEarned, daysCompleted, maxDays, systemActive, manualStatus, isActive, status, startDate]
+        roiPoolPercent:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required: [id, userId, userName, userEmail, planId, planName, amount, dailyRoi, maxReturn, totalEarned, daysCompleted, maxDays, systemActive, manualStatus, isActive, status, startDate, roiPoolPercent]
 
     AdminInvestmentListPage:
       type: object
@@ -1264,7 +2022,7 @@ components:
           type: number
         type:
           type: string
-          enum: [ROI, ADJUSTMENT, WITHDRAWAL, INVESTMENT]
+          enum: [ROI, ADJUSTMENT, WITHDRAWAL, INVESTMENT, REFERRAL_BONUS, BINARY_PAIR, LEVEL_INCOME]
         date:
           type: string
           format: date-time
@@ -1303,24 +2061,134 @@ components:
       properties:
         planId:
           type: string
+        beneficiaryUserId:
+          type: string
+          description: >-
+            Optional. When set to another member's user id, that member receives the investment and
+            the plan cost is debited from your wallet (sponsored activation). Omit or set to your own id to activate for yourself.
       required: [planId]
+
+    WalletTransferRequest:
+      type: object
+      description: Exactly one destination field must be provided.
+      properties:
+        amount:
+          type: number
+          minimum: 1
+        toUserId:
+          type: string
+        toEmail:
+          type: string
+          format: email
+        toReferralCode:
+          type: string
+          minLength: 2
+          maxLength: 32
+      required: [amount]
+
+    WalletTransferResponse:
+      type: object
+      properties:
+        walletBalance:
+          type: number
+          description: Your wallet balance after the transfer
+        recipientId:
+          type: string
+        recipientName:
+          type: string
+        feePercent:
+          type: number
+          description: Platform fee percent applied to this transfer (0–100)
+        feeAmount:
+          type: number
+          description: Rupees retained by the platform from the gross amount sent
+        recipientReceived:
+          type: number
+          description: Net amount credited to the recipient wallet
+      required: [walletBalance, recipientId, recipientName, feePercent, feeAmount, recipientReceived]
+
+    ResolvedMember:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        referralCode:
+          type: string
+          nullable: true
+      required: [id, name, referralCode]
 
     WithdrawalFeeSettings:
       type: object
       properties:
         withdrawalFeePercent:
           type: number
-          description: Percent deducted from requested gross (0–100). Default 10 when unset in database.
-      required: [withdrawalFeePercent]
+          description: Effective percent for this member (custom override or global default).
+        globalWithdrawalFeePercent:
+          type: number
+          description: Site-wide default from admin Settings.
+        customWithdrawalFeePercent:
+          type: number
+          nullable: true
+          description: Per-member override when set; null means use global default.
+        peerTransferFeePercent:
+          type: number
+          description: Percent applied to peer wallet sends and gift-plan activations (0–100). Default 0 when unset.
+        minWithdrawalAmount:
+          type: number
+          description: Minimum gross withdrawal request in ₹.
+      required: [withdrawalFeePercent, peerTransferFeePercent, minWithdrawalAmount]
 
-    AdminSettings:
+    AdminUserWithdrawalFee:
       type: object
       properties:
-        withdrawalFeePercent:
+        userId:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        customWithdrawalFeePercent:
           type: number
-      required: [withdrawalFeePercent]
+          nullable: true
+          description: Admin-set override; null when using global default.
+        effectiveWithdrawalFeePercent:
+          type: number
+          description: Fee applied on next withdrawal for this member.
+        globalWithdrawalFeePercent:
+          type: number
+          description: Current site-wide default (Settings).
+      required: [userId, name, email, effectiveWithdrawalFeePercent, globalWithdrawalFeePercent]
 
-    AdminUpdateSettingsRequest:
+    AdminWithdrawalFeeRow:
+      type: object
+      properties:
+        userId:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        customWithdrawalFeePercent:
+          type: number
+          nullable: true
+        effectiveWithdrawalFeePercent:
+          type: number
+      required: [userId, name, email, effectiveWithdrawalFeePercent]
+
+    AdminWithdrawalFeeList:
+      type: object
+      properties:
+        globalWithdrawalFeePercent:
+          type: number
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWithdrawalFeeRow"
+      required: [globalWithdrawalFeePercent, users]
+
+    AdminSetUserWithdrawalFeeRequest:
       type: object
       properties:
         withdrawalFeePercent:
@@ -1328,6 +2196,104 @@ components:
           minimum: 0
           maximum: 100
       required: [withdrawalFeePercent]
+
+    PlatformFeatures:
+      type: object
+      properties:
+        binaryPlanEnabled:
+          type: boolean
+          description: When false, binary UI and binary pair payouts are hidden/disabled site-wide.
+        directIncomeEnabled:
+          type: boolean
+          description: When false, direct referral bonus payouts and per-plan direct bonus fields are hidden.
+      required: [binaryPlanEnabled, directIncomeEnabled]
+
+    LevelIncomeTier:
+      type: object
+      properties:
+        level:
+          type: integer
+          minimum: 1
+          maximum: 32
+          description: Generation from downline (1 = direct sponsor).
+        percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Percent of downline credited daily ROI paid at this level.
+      required: [level, percent]
+
+    LevelIncomeConfig:
+      type: object
+      properties:
+        levels:
+          type: array
+          items:
+            $ref: "#/components/schemas/LevelIncomeTier"
+        maxLevels:
+          type: integer
+          description: Maximum tiers allowed (32).
+        defaultOnNewPlans:
+          type: boolean
+          description: When true, Create Plan enables level income by default (admin can turn off per plan).
+      required: [levels, maxLevels, defaultOnNewPlans]
+
+    AdminUpdateLevelIncomeRequest:
+      type: object
+      description: Send levels and/or defaultOnNewPlans (at least one).
+      minProperties: 1
+      properties:
+        levels:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/LevelIncomeTier"
+        defaultOnNewPlans:
+          type: boolean
+
+    AdminSettings:
+      type: object
+      properties:
+        withdrawalFeePercent:
+          type: number
+        peerTransferFeePercent:
+          type: number
+        binaryPlanEnabled:
+          type: boolean
+        directIncomeEnabled:
+          type: boolean
+          description: When false, direct referral bonus is disabled and hidden on admin plan forms.
+        standalonePlanCreationOnly:
+          type: boolean
+          description: When true, admin Create Plan only allows standalone (ROI-only) packages.
+        minWithdrawalAmount:
+          type: number
+          description: Minimum gross withdrawal request in ₹.
+      required: [withdrawalFeePercent, peerTransferFeePercent, binaryPlanEnabled, directIncomeEnabled, standalonePlanCreationOnly, minWithdrawalAmount]
+
+    AdminUpdateSettingsRequest:
+      type: object
+      description: At least one property must be sent.
+      minProperties: 1
+      properties:
+        withdrawalFeePercent:
+          type: number
+          minimum: 0
+          maximum: 100
+        peerTransferFeePercent:
+          type: number
+          minimum: 0
+          maximum: 100
+        binaryPlanEnabled:
+          type: boolean
+        directIncomeEnabled:
+          type: boolean
+        standalonePlanCreationOnly:
+          type: boolean
+        minWithdrawalAmount:
+          type: number
+          minimum: 1
 
     Withdrawal:
       type: object
@@ -1357,7 +2323,70 @@ components:
           type: string
           format: date-time
           nullable: true
+        bankAccountSaveWarning:
+          type: string
+          nullable: true
+          description: Present when withdrawal succeeded but profile could not store bank details (e.g. saved-account limit)
       required: [id, requestAmount, feePercent, feeAmount, netAmount, status, createdAt]
+
+    SavedBankAccount:
+      type: object
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+          nullable: true
+        bankName:
+          type: string
+        ifscCode:
+          type: string
+        accountNumber:
+          type: string
+        accountHolderName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        [id, bankName, ifscCode, accountNumber, accountHolderName, createdAt]
+
+    CreateSavedBankAccountRequest:
+      type: object
+      properties:
+        bankName:
+          type: string
+          minLength: 2
+        ifscCode:
+          type: string
+        accountNumber:
+          type: string
+        accountHolderName:
+          type: string
+          minLength: 2
+        label:
+          type: string
+          maxLength: 80
+      required: [bankName, ifscCode, accountNumber, accountHolderName]
+
+    UpdateSavedBankAccountRequest:
+      type: object
+      minProperties: 1
+      properties:
+        bankName:
+          type: string
+          minLength: 2
+        ifscCode:
+          type: string
+        accountNumber:
+          type: string
+        accountHolderName:
+          type: string
+          minLength: 2
+        label:
+          type: string
+          maxLength: 80
+          nullable: true
 
     AdminWithdrawal:
       type: object
@@ -1408,9 +2437,27 @@ components:
       properties:
         amount:
           type: number
-          minimum: 500
+          minimum: 100
         bankDetails:
           type: string
+          description: Legacy multiline bank text (alternative to structured fields or bankAccountId)
+        bankAccountId:
+          type: string
+          description: Use a profile-saved bank account
+        bankName:
+          type: string
+        ifscCode:
+          type: string
+        accountNumber:
+          type: string
+        accountHolderName:
+          type: string
+        saveBankAccount:
+          type: boolean
+          description: When submitting structured fields, defaults true — save to profile after success unless false
+        bankAccountLabel:
+          type: string
+          maxLength: 80
       required: [amount]
 
     AdminUpdateWithdrawalRequest:
@@ -1430,6 +2477,119 @@ components:
           type: boolean
         name:
           type: string
+
+    DirectReferralRow:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        referralCode:
+          type: string
+          nullable: true
+        binarySide:
+          type: string
+          nullable: true
+          enum: [left, right]
+        createdAt:
+          type: string
+          format: date-time
+        hasActivatedInvestment:
+          type: boolean
+        activeInvestmentsCount:
+          type: integer
+        totalInvested:
+          type: number
+      required:
+        [
+          id,
+          name,
+          email,
+          referralCode,
+          binarySide,
+          createdAt,
+          hasActivatedInvestment,
+          activeInvestmentsCount,
+          totalInvested,
+        ]
+
+    DirectLevelResponse:
+      type: object
+      properties:
+        directs:
+          type: array
+          items:
+            $ref: "#/components/schemas/DirectReferralRow"
+      required: [directs]
+
+    BinaryTreeNode:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        binarySide:
+          type: string
+          nullable: true
+          description: Placement under parent (null for the root node — you)
+          enum: [left, right]
+        leftTeam:
+          type: array
+          description: All members placed directly on this node's left leg (newest last)
+          items:
+            $ref: "#/components/schemas/BinaryTreeNode"
+        rightTeam:
+          type: array
+          description: All members placed directly on this node's right leg (newest last)
+          items:
+            $ref: "#/components/schemas/BinaryTreeNode"
+      required: [id, name, binarySide, leftTeam, rightTeam]
+
+    BinaryTreeResponse:
+      type: object
+      properties:
+        root:
+          $ref: "#/components/schemas/BinaryTreeNode"
+        maxDepth:
+          type: integer
+      required: [root, maxDepth]
+
+    SponsorTreeNode:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        referralCode:
+          type: string
+          nullable: true
+        hasActivatedInvestment:
+          type: boolean
+        activeInvestmentsCount:
+          type: integer
+        totalInvested:
+          type: number
+        children:
+          type: array
+          description: Direct referrals sponsored by this member (unilevel)
+          items:
+            $ref: "#/components/schemas/SponsorTreeNode"
+      required:
+        [id, name, referralCode, hasActivatedInvestment, activeInvestmentsCount, totalInvested, children]
+
+    SponsorTreeResponse:
+      type: object
+      properties:
+        root:
+          $ref: "#/components/schemas/SponsorTreeNode"
+        maxDepth:
+          type: integer
+      required: [root, maxDepth]
 
     DashboardStats:
       type: object
@@ -1455,6 +2615,9 @@ components:
           type: integer
         activeUsers:
           type: integer
+        dailyRegistrations:
+          type: integer
+          description: Non-admin users whose account was created on the current calendar day (Asia/Kolkata).
         totalInvested:
           type: number
         totalEarned:
@@ -1474,6 +2637,7 @@ components:
         [
           totalUsers,
           activeUsers,
+          dailyRegistrations,
           totalInvested,
           totalEarned,
           activeInvestments,
@@ -1490,11 +2654,23 @@ components:
           type: string
         isPaymentEnabled:
           type: boolean
+        depositMethod:
+          type: string
+          enum: [legacy_qr, dynamic_upi]
+          description: legacy_qr = static uploaded QR; dynamic_upi = amount-specific UPI link
+        upiIds:
+          type: array
+          items:
+            type: string
+          description: UPI VPAs for dynamic deposits (one chosen at random per payment)
+        payeeName:
+          type: string
+          description: Payee name shown in UPI apps
         updatedAt:
           type: string
           format: date-time
           nullable: true
-      required: [qrCodeImageUrl, isPaymentEnabled]
+      required: [qrCodeImageUrl, isPaymentEnabled, depositMethod, upiIds, payeeName]
 
     AdminUpdatePaymentSettingsRequest:
       type: object
@@ -1504,6 +2680,37 @@ components:
           description: Public URL after upload; may be empty string to clear
         isPaymentEnabled:
           type: boolean
+        depositMethod:
+          type: string
+          enum: [legacy_qr, dynamic_upi]
+        upiIds:
+          type: array
+          items:
+            type: string
+        payeeName:
+          type: string
+
+    GenerateDepositPaymentRequest:
+      type: object
+      properties:
+        amount:
+          type: number
+          minimum: 1
+      required: [amount]
+
+    GenerateDepositPaymentResponse:
+      type: object
+      properties:
+        amount:
+          type: number
+        selectedUpiId:
+          type: string
+        payeeName:
+          type: string
+        upiDeepLink:
+          type: string
+          description: UPI URI for QR and Pay Now
+      required: [amount, selectedUpiId, payeeName, upiDeepLink]
 
     Deposit:
       type: object
@@ -1517,6 +2724,9 @@ components:
         screenshotUrl:
           type: string
         note:
+          type: string
+          nullable: true
+        payeeUpiId:
           type: string
           nullable: true
         status:
@@ -1564,6 +2774,9 @@ components:
         note:
           type: string
           nullable: true
+        payeeUpiId:
+          type: string
+          nullable: true
         status:
           type: string
           enum: [pending, approved, rejected]
@@ -1598,6 +2811,31 @@ components:
       properties:
         name:
           type: string
+
+    ChangePasswordRequest:
+      type: object
+      properties:
+        currentPassword:
+          type: string
+          minLength: 1
+        newPassword:
+          type: string
+          minLength: 6
+        confirmNewPassword:
+          type: string
+          minLength: 6
+          description: Must match newPassword
+      required: [currentPassword, newPassword, confirmNewPassword]
+
+    ChangePasswordResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        token:
+          type: string
+          description: Fresh Firebase ID token after password change
+      required: [message, token]
 
     CronResult:
       type: object

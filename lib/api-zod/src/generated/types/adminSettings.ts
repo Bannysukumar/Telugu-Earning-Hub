@@ -8,4 +8,12 @@
 
 export interface AdminSettings {
   withdrawalFeePercent: number;
+  peerTransferFeePercent: number;
+  binaryPlanEnabled: boolean;
+  /** When false, direct referral bonus is disabled and hidden on admin plan forms. */
+  directIncomeEnabled: boolean;
+  /** When true, admin Create Plan only allows standalone (ROI-only) packages. */
+  standalonePlanCreationOnly: boolean;
+  /** Minimum gross withdrawal request in ₹. */
+  minWithdrawalAmount: number;
 }

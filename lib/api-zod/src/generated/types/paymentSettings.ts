@@ -5,9 +5,16 @@
  * ROI Investment Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { PaymentSettingsDepositMethod } from "./paymentSettingsDepositMethod";
 
 export interface PaymentSettings {
   qrCodeImageUrl: string;
   isPaymentEnabled: boolean;
+  /** legacy_qr = static uploaded QR; dynamic_upi = amount-specific UPI link */
+  depositMethod: PaymentSettingsDepositMethod;
+  /** UPI VPAs for dynamic deposits (one chosen at random per payment) */
+  upiIds: string[];
+  /** Payee name shown in UPI apps */
+  payeeName: string;
   updatedAt?: Date | null;
 }

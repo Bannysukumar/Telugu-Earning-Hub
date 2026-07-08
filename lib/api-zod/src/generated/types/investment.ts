@@ -24,4 +24,10 @@ export interface Investment {
   status: InvestmentStatus;
   startDate: Date;
   lastRoiUpdate?: Date | null;
+  /**
+   * Snapshot from plan at activation; percent of dailyRoi paid each ROI day.
+   * @minimum 1
+   * @maximum 100
+   */
+  roiPoolPercent: number;
 }

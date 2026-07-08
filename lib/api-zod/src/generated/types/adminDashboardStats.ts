@@ -9,6 +9,8 @@
 export interface AdminDashboardStats {
   totalUsers: number;
   activeUsers: number;
+  /** Non-admin users whose account was created on the current calendar day (Asia/Kolkata). */
+  dailyRegistrations: number;
   totalInvested: number;
   totalEarned: number;
   activeInvestments: number;

@@ -5,6 +5,8 @@
  * ROI Investment Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { LevelIncomeTier } from "./levelIncomeTier";
+import type { PlanPlanKind } from "./planPlanKind";
 
 export interface Plan {
   id: string;
@@ -15,4 +17,22 @@ export interface Plan {
   maxDays: number;
   isActive: boolean;
   description?: string;
+  /** Rupees paid to direct sponsor on referral's first investment (default 20). */
+  directBonus: number;
+  /** BV required on each leg to form one binary pair (default 200). */
+  binaryPairVolume: number;
+  /** Rupees paid per binary pair to upline (default 80). */
+  binaryPairPayout: number;
+  /**
+   * Percent of plan dailyRoi credited each ROI day (default 100).
+   * @minimum 1
+   * @maximum 100
+   */
+  roiPoolPercent: number;
+  /** When true, downline daily ROI pays uplines per this plan's level-income schedule (or global default when tiers are omitted). */
+  levelIncomeEnabled: boolean;
+  /** Per-plan level schedule. Levels with 0% are disabled and receive no payout. */
+  levelIncomeTiers?: LevelIncomeTier[];
+  /** Standalone = ROI only, no referral/binary, no gift activation, no 2-referral withdrawal gate. */
+  planKind?: PlanPlanKind;
 }

@@ -5,6 +5,7 @@
  * ROI Investment Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { RegisterRequestBinaryPreferredSide } from "./registerRequestBinaryPreferredSide";
 
 export interface RegisterRequest {
   name: string;
@@ -18,4 +19,12 @@ export interface RegisterRequest {
   confirmPassword: string;
   /** Mobile number; digits only are stored after normalization (10–15 digits). */
   phone: string;
+  /**
+   * Sponsor referral code (case-insensitive). Must match an existing user; validate with GET /auth/referral-lookup before submit.
+   * @minLength 2
+   * @maxLength 32
+   */
+  referralCode: string;
+  /** Required when binary plan is enabled; join as sponsor's immediate left or right leg. */
+  binaryPreferredSide?: RegisterRequestBinaryPreferredSide;
 }

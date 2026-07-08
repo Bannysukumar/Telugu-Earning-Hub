@@ -19,4 +19,6 @@ export interface Withdrawal {
   bankDetails?: string | null;
   createdAt: Date;
   updatedAt?: Date | null;
+  /** Present when withdrawal succeeded but profile could not store bank details (e.g. saved-account limit) */
+  bankAccountSaveWarning?: string | null;
 }

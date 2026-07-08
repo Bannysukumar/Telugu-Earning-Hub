@@ -7,6 +7,14 @@
  */
 
 export interface WithdrawalFeeSettings {
-  /** Percent deducted from requested gross (0–100). Default 10 when unset in database. */
+  /** Effective percent for this member (custom override or global default). */
   withdrawalFeePercent: number;
+  /** Site-wide default from admin Settings. */
+  globalWithdrawalFeePercent?: number;
+  /** Per-member override when set; null means use global default. */
+  customWithdrawalFeePercent?: number | null;
+  /** Percent applied to peer wallet sends and gift-plan activations (0–100). Default 0 when unset. */
+  peerTransferFeePercent: number;
+  /** Minimum gross withdrawal request in ₹. */
+  minWithdrawalAmount: number;
 }

@@ -7,7 +7,18 @@
  */
 
 export interface CreateWithdrawalRequest {
-  /** @minimum 500 */
+  /** @minimum 100 */
   amount: number;
+  /** Legacy multiline bank text (alternative to structured fields or bankAccountId) */
   bankDetails?: string;
+  /** Use a profile-saved bank account */
+  bankAccountId?: string;
+  bankName?: string;
+  ifscCode?: string;
+  accountNumber?: string;
+  accountHolderName?: string;
+  /** When submitting structured fields, defaults true — save to profile after success unless false */
+  saveBankAccount?: boolean;
+  /** @maxLength 80 */
+  bankAccountLabel?: string;
 }

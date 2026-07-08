@@ -22,37 +22,63 @@ import type {
   AdminDeposit,
   AdminGetIncomeHistoryParams,
   AdminGetInvestmentsParams,
+  AdminGetUserBinaryTreeParams,
+  AdminGetUserSponsorTreeParams,
   AdminInvestment,
   AdminInvestmentListPage,
   AdminPatchInvestmentRequest,
+  AdminSetUserWithdrawalFeeRequest,
   AdminSettings,
   AdminUpdateDepositRequest,
+  AdminUpdateLevelIncomeRequest,
   AdminUpdatePaymentSettingsRequest,
   AdminUpdateSettingsRequest,
   AdminUpdateUserRequest,
   AdminUpdateWithdrawalRequest,
   AdminUser,
+  AdminUserWithdrawalFee,
   AdminWithdrawal,
+  AdminWithdrawalFeeList,
   AuthResponse,
+  BinaryTreeResponse,
+  ChangePasswordRequest,
+  ChangePasswordResponse,
   CreateInvestmentRequest,
   CreatePlanRequest,
+  CreateSavedBankAccountRequest,
   CreateWithdrawalRequest,
   CronResult,
   DashboardStats,
+  DirectLevelResponse,
   ErrorResponse,
+  GenerateDepositPaymentRequest,
+  GenerateDepositPaymentResponse,
+  GetMyBinaryTreeParams,
   GetMyIncomeHistoryParams,
+  GetMySponsorTreeParams,
+  GetReferralLookupParams,
   HealthStatus,
   IncomeHistoryPage,
   Investment,
+  LevelIncomeConfig,
   LoginRequest,
   MessageResponse,
   PaymentSettings,
   Plan,
+  PlatformFeatures,
+  ReferralLookupResponse,
   RegisterRequest,
+  ResolveMemberForTransferParams,
+  ResolvedMember,
+  SavedBankAccount,
+  SponsorTreeResponse,
   UpdatePlanRequest,
   UpdateProfileRequest,
+  UpdateSavedBankAccountRequest,
   User,
   UserDepositsResponse,
+  WalletTransferRequest,
+  WalletTransferResponse,
   Withdrawal,
   WithdrawalFeeSettings,
 } from "./api.schemas";
@@ -133,6 +159,178 @@ export function useHealthCheck<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getHealthCheckQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Public platform feature flags (binary plan visibility)
+ */
+export const getGetPlatformFeaturesUrl = () => {
+  return `/api/platform/features`;
+};
+
+export const getPlatformFeatures = async (
+  options?: RequestInit,
+): Promise<PlatformFeatures> => {
+  return customFetch<PlatformFeatures>(getGetPlatformFeaturesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPlatformFeaturesQueryKey = () => {
+  return [`/api/platform/features`] as const;
+};
+
+export const getGetPlatformFeaturesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPlatformFeatures>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPlatformFeatures>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPlatformFeaturesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPlatformFeatures>>
+  > = ({ signal }) => getPlatformFeatures({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPlatformFeatures>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPlatformFeaturesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPlatformFeatures>>
+>;
+export type GetPlatformFeaturesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Public platform feature flags (binary plan visibility)
+ */
+
+export function useGetPlatformFeatures<
+  TData = Awaited<ReturnType<typeof getPlatformFeatures>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPlatformFeatures>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPlatformFeaturesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Validate a sponsor referral code and return the sponsor display name (before register)
+ */
+export const getGetReferralLookupUrl = (params: GetReferralLookupParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/auth/referral-lookup?${stringifiedParams}`
+    : `/api/auth/referral-lookup`;
+};
+
+export const getReferralLookup = async (
+  params: GetReferralLookupParams,
+  options?: RequestInit,
+): Promise<ReferralLookupResponse> => {
+  return customFetch<ReferralLookupResponse>(getGetReferralLookupUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetReferralLookupQueryKey = (
+  params?: GetReferralLookupParams,
+) => {
+  return [`/api/auth/referral-lookup`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetReferralLookupQueryOptions = <
+  TData = Awaited<ReturnType<typeof getReferralLookup>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params: GetReferralLookupParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getReferralLookup>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetReferralLookupQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getReferralLookup>>
+  > = ({ signal }) => getReferralLookup(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getReferralLookup>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetReferralLookupQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getReferralLookup>>
+>;
+export type GetReferralLookupQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Validate a sponsor referral code and return the sponsor display name (before register)
+ */
+
+export function useGetReferralLookup<
+  TData = Awaited<ReturnType<typeof getReferralLookup>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params: GetReferralLookupParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getReferralLookup>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetReferralLookupQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -598,7 +796,7 @@ export function useGetMyInvestments<
 }
 
 /**
- * @summary Create a new investment
+ * @summary Activate a plan (deducts from your wallet). Optionally activate for another member you sponsor.
  */
 export const getCreateInvestmentUrl = () => {
   return `/api/investments`;
@@ -661,7 +859,7 @@ export type CreateInvestmentMutationBody = BodyType<CreateInvestmentRequest>;
 export type CreateInvestmentMutationError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Create a new investment
+ * @summary Activate a plan (deducts from your wallet). Optionally activate for another member you sponsor.
  */
 export const useCreateInvestment = <
   TError = ErrorType<ErrorResponse>,
@@ -996,6 +1194,92 @@ export function useGetDashboard<
 }
 
 /**
+ * @summary Change account password
+ */
+export const getChangePasswordUrl = () => {
+  return `/api/user/change-password`;
+};
+
+export const changePassword = async (
+  changePasswordRequest: ChangePasswordRequest,
+  options?: RequestInit,
+): Promise<ChangePasswordResponse> => {
+  return customFetch<ChangePasswordResponse>(getChangePasswordUrl(), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(changePasswordRequest),
+  });
+};
+
+export const getChangePasswordMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof changePassword>>,
+    TError,
+    { data: BodyType<ChangePasswordRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof changePassword>>,
+  TError,
+  { data: BodyType<ChangePasswordRequest> },
+  TContext
+> => {
+  const mutationKey = ["changePassword"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof changePassword>>,
+    { data: BodyType<ChangePasswordRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return changePassword(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ChangePasswordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof changePassword>>
+>;
+export type ChangePasswordMutationBody = BodyType<ChangePasswordRequest>;
+export type ChangePasswordMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Change account password
+ */
+export const useChangePassword = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof changePassword>>,
+    TError,
+    { data: BodyType<ChangePasswordRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof changePassword>>,
+  TError,
+  { data: BodyType<ChangePasswordRequest> },
+  TContext
+> => {
+  return useMutation(getChangePasswordMutationOptions(options));
+};
+
+/**
  * @summary Update user profile
  */
 export const getUpdateProfileUrl = () => {
@@ -1080,6 +1364,526 @@ export const useUpdateProfile = <
 > => {
   return useMutation(getUpdateProfileMutationOptions(options));
 };
+
+/**
+ * @summary List saved withdrawal bank accounts
+ */
+export const getListMyBankAccountsUrl = () => {
+  return `/api/user/bank-accounts`;
+};
+
+export const listMyBankAccounts = async (
+  options?: RequestInit,
+): Promise<SavedBankAccount[]> => {
+  return customFetch<SavedBankAccount[]>(getListMyBankAccountsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListMyBankAccountsQueryKey = () => {
+  return [`/api/user/bank-accounts`] as const;
+};
+
+export const getListMyBankAccountsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listMyBankAccounts>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listMyBankAccounts>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListMyBankAccountsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listMyBankAccounts>>
+  > = ({ signal }) => listMyBankAccounts({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listMyBankAccounts>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListMyBankAccountsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listMyBankAccounts>>
+>;
+export type ListMyBankAccountsQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary List saved withdrawal bank accounts
+ */
+
+export function useListMyBankAccounts<
+  TData = Awaited<ReturnType<typeof listMyBankAccounts>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listMyBankAccounts>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListMyBankAccountsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Add or merge a saved bank account (by IFSC + account number)
+ */
+export const getCreateMyBankAccountUrl = () => {
+  return `/api/user/bank-accounts`;
+};
+
+export const createMyBankAccount = async (
+  createSavedBankAccountRequest: CreateSavedBankAccountRequest,
+  options?: RequestInit,
+): Promise<SavedBankAccount> => {
+  return customFetch<SavedBankAccount>(getCreateMyBankAccountUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createSavedBankAccountRequest),
+  });
+};
+
+export const getCreateMyBankAccountMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMyBankAccount>>,
+    TError,
+    { data: BodyType<CreateSavedBankAccountRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createMyBankAccount>>,
+  TError,
+  { data: BodyType<CreateSavedBankAccountRequest> },
+  TContext
+> => {
+  const mutationKey = ["createMyBankAccount"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createMyBankAccount>>,
+    { data: BodyType<CreateSavedBankAccountRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createMyBankAccount(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateMyBankAccountMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createMyBankAccount>>
+>;
+export type CreateMyBankAccountMutationBody =
+  BodyType<CreateSavedBankAccountRequest>;
+export type CreateMyBankAccountMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Add or merge a saved bank account (by IFSC + account number)
+ */
+export const useCreateMyBankAccount = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMyBankAccount>>,
+    TError,
+    { data: BodyType<CreateSavedBankAccountRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createMyBankAccount>>,
+  TError,
+  { data: BodyType<CreateSavedBankAccountRequest> },
+  TContext
+> => {
+  return useMutation(getCreateMyBankAccountMutationOptions(options));
+};
+
+/**
+ * @summary Update a saved bank account
+ */
+export const getUpdateMyBankAccountUrl = (accountId: string) => {
+  return `/api/user/bank-accounts/${accountId}`;
+};
+
+export const updateMyBankAccount = async (
+  accountId: string,
+  updateSavedBankAccountRequest: UpdateSavedBankAccountRequest,
+  options?: RequestInit,
+): Promise<SavedBankAccount> => {
+  return customFetch<SavedBankAccount>(getUpdateMyBankAccountUrl(accountId), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateSavedBankAccountRequest),
+  });
+};
+
+export const getUpdateMyBankAccountMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateMyBankAccount>>,
+    TError,
+    { accountId: string; data: BodyType<UpdateSavedBankAccountRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateMyBankAccount>>,
+  TError,
+  { accountId: string; data: BodyType<UpdateSavedBankAccountRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateMyBankAccount"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateMyBankAccount>>,
+    { accountId: string; data: BodyType<UpdateSavedBankAccountRequest> }
+  > = (props) => {
+    const { accountId, data } = props ?? {};
+
+    return updateMyBankAccount(accountId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateMyBankAccountMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateMyBankAccount>>
+>;
+export type UpdateMyBankAccountMutationBody =
+  BodyType<UpdateSavedBankAccountRequest>;
+export type UpdateMyBankAccountMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Update a saved bank account
+ */
+export const useUpdateMyBankAccount = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateMyBankAccount>>,
+    TError,
+    { accountId: string; data: BodyType<UpdateSavedBankAccountRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateMyBankAccount>>,
+  TError,
+  { accountId: string; data: BodyType<UpdateSavedBankAccountRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateMyBankAccountMutationOptions(options));
+};
+
+/**
+ * @summary Remove a saved bank account
+ */
+export const getDeleteMyBankAccountUrl = (accountId: string) => {
+  return `/api/user/bank-accounts/${accountId}`;
+};
+
+export const deleteMyBankAccount = async (
+  accountId: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteMyBankAccountUrl(accountId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteMyBankAccountMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteMyBankAccount>>,
+    TError,
+    { accountId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteMyBankAccount>>,
+  TError,
+  { accountId: string },
+  TContext
+> => {
+  const mutationKey = ["deleteMyBankAccount"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteMyBankAccount>>,
+    { accountId: string }
+  > = (props) => {
+    const { accountId } = props ?? {};
+
+    return deleteMyBankAccount(accountId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteMyBankAccountMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteMyBankAccount>>
+>;
+
+export type DeleteMyBankAccountMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Remove a saved bank account
+ */
+export const useDeleteMyBankAccount = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteMyBankAccount>>,
+    TError,
+    { accountId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteMyBankAccount>>,
+  TError,
+  { accountId: string },
+  TContext
+> => {
+  return useMutation(getDeleteMyBankAccountMutationOptions(options));
+};
+
+/**
+ * @summary Transfer wallet balance to another member
+ */
+export const getTransferWalletToUserUrl = () => {
+  return `/api/user/wallet/transfer`;
+};
+
+export const transferWalletToUser = async (
+  walletTransferRequest: WalletTransferRequest,
+  options?: RequestInit,
+): Promise<WalletTransferResponse> => {
+  return customFetch<WalletTransferResponse>(getTransferWalletToUserUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(walletTransferRequest),
+  });
+};
+
+export const getTransferWalletToUserMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof transferWalletToUser>>,
+    TError,
+    { data: BodyType<WalletTransferRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof transferWalletToUser>>,
+  TError,
+  { data: BodyType<WalletTransferRequest> },
+  TContext
+> => {
+  const mutationKey = ["transferWalletToUser"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof transferWalletToUser>>,
+    { data: BodyType<WalletTransferRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return transferWalletToUser(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type TransferWalletToUserMutationResult = NonNullable<
+  Awaited<ReturnType<typeof transferWalletToUser>>
+>;
+export type TransferWalletToUserMutationBody = BodyType<WalletTransferRequest>;
+export type TransferWalletToUserMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Transfer wallet balance to another member
+ */
+export const useTransferWalletToUser = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof transferWalletToUser>>,
+    TError,
+    { data: BodyType<WalletTransferRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof transferWalletToUser>>,
+  TError,
+  { data: BodyType<WalletTransferRequest> },
+  TContext
+> => {
+  return useMutation(getTransferWalletToUserMutationOptions(options));
+};
+
+/**
+ * @summary Resolve another member by user id, email, or referral code (for transfers / gifting)
+ */
+export const getResolveMemberForTransferUrl = (
+  params?: ResolveMemberForTransferParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/user/members/resolve?${stringifiedParams}`
+    : `/api/user/members/resolve`;
+};
+
+export const resolveMemberForTransfer = async (
+  params?: ResolveMemberForTransferParams,
+  options?: RequestInit,
+): Promise<ResolvedMember> => {
+  return customFetch<ResolvedMember>(getResolveMemberForTransferUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getResolveMemberForTransferQueryKey = (
+  params?: ResolveMemberForTransferParams,
+) => {
+  return [`/api/user/members/resolve`, ...(params ? [params] : [])] as const;
+};
+
+export const getResolveMemberForTransferQueryOptions = <
+  TData = Awaited<ReturnType<typeof resolveMemberForTransfer>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params?: ResolveMemberForTransferParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof resolveMemberForTransfer>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getResolveMemberForTransferQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof resolveMemberForTransfer>>
+  > = ({ signal }) =>
+    resolveMemberForTransfer(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof resolveMemberForTransfer>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ResolveMemberForTransferQueryResult = NonNullable<
+  Awaited<ReturnType<typeof resolveMemberForTransfer>>
+>;
+export type ResolveMemberForTransferQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Resolve another member by user id, email, or referral code (for transfers / gifting)
+ */
+
+export function useResolveMemberForTransfer<
+  TData = Awaited<ReturnType<typeof resolveMemberForTransfer>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params?: ResolveMemberForTransferParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof resolveMemberForTransfer>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getResolveMemberForTransferQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Paginated ROI and income history for current user
@@ -1179,6 +1983,272 @@ export function useGetMyIncomeHistory<
 }
 
 /**
+ * @summary Direct referrals (sponsor level) for the current user
+ */
+export const getGetMyDirectLevelUrl = () => {
+  return `/api/user/direct-level`;
+};
+
+export const getMyDirectLevel = async (
+  options?: RequestInit,
+): Promise<DirectLevelResponse> => {
+  return customFetch<DirectLevelResponse>(getGetMyDirectLevelUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMyDirectLevelQueryKey = () => {
+  return [`/api/user/direct-level`] as const;
+};
+
+export const getGetMyDirectLevelQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMyDirectLevel>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMyDirectLevel>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMyDirectLevelQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getMyDirectLevel>>
+  > = ({ signal }) => getMyDirectLevel({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMyDirectLevel>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMyDirectLevelQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMyDirectLevel>>
+>;
+export type GetMyDirectLevelQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Direct referrals (sponsor level) for the current user
+ */
+
+export function useGetMyDirectLevel<
+  TData = Awaited<ReturnType<typeof getMyDirectLevel>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMyDirectLevel>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMyDirectLevelQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Unilevel sponsor tree for investment-plan genealogy
+ */
+export const getGetMySponsorTreeUrl = (params?: GetMySponsorTreeParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/user/sponsor-tree?${stringifiedParams}`
+    : `/api/user/sponsor-tree`;
+};
+
+export const getMySponsorTree = async (
+  params?: GetMySponsorTreeParams,
+  options?: RequestInit,
+): Promise<SponsorTreeResponse> => {
+  return customFetch<SponsorTreeResponse>(getGetMySponsorTreeUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMySponsorTreeQueryKey = (
+  params?: GetMySponsorTreeParams,
+) => {
+  return [`/api/user/sponsor-tree`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetMySponsorTreeQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMySponsorTree>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params?: GetMySponsorTreeParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getMySponsorTree>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetMySponsorTreeQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getMySponsorTree>>
+  > = ({ signal }) => getMySponsorTree(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMySponsorTree>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMySponsorTreeQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMySponsorTree>>
+>;
+export type GetMySponsorTreeQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Unilevel sponsor tree for investment-plan genealogy
+ */
+
+export function useGetMySponsorTree<
+  TData = Awaited<ReturnType<typeof getMySponsorTree>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params?: GetMySponsorTreeParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getMySponsorTree>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMySponsorTreeQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Binary placement tree under the current user (left/right legs)
+ */
+export const getGetMyBinaryTreeUrl = (params?: GetMyBinaryTreeParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/user/binary-tree?${stringifiedParams}`
+    : `/api/user/binary-tree`;
+};
+
+export const getMyBinaryTree = async (
+  params?: GetMyBinaryTreeParams,
+  options?: RequestInit,
+): Promise<BinaryTreeResponse> => {
+  return customFetch<BinaryTreeResponse>(getGetMyBinaryTreeUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMyBinaryTreeQueryKey = (params?: GetMyBinaryTreeParams) => {
+  return [`/api/user/binary-tree`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetMyBinaryTreeQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMyBinaryTree>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params?: GetMyBinaryTreeParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getMyBinaryTree>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMyBinaryTreeQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMyBinaryTree>>> = ({
+    signal,
+  }) => getMyBinaryTree(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMyBinaryTree>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMyBinaryTreeQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMyBinaryTree>>
+>;
+export type GetMyBinaryTreeQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Binary placement tree under the current user (left/right legs)
+ */
+
+export function useGetMyBinaryTree<
+  TData = Awaited<ReturnType<typeof getMyBinaryTree>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params?: GetMyBinaryTreeParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getMyBinaryTree>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMyBinaryTreeQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
  * @summary QR / manual deposit settings for add-fund flow
  */
 export const getGetUserPaymentSettingsUrl = () => {
@@ -1253,6 +2323,96 @@ export function useGetUserPaymentSettings<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Create dynamic UPI payment link and QR payload for a deposit amount
+ */
+export const getGenerateDepositPaymentUrl = () => {
+  return `/api/user/deposits/generate-payment`;
+};
+
+export const generateDepositPayment = async (
+  generateDepositPaymentRequest: GenerateDepositPaymentRequest,
+  options?: RequestInit,
+): Promise<GenerateDepositPaymentResponse> => {
+  return customFetch<GenerateDepositPaymentResponse>(
+    getGenerateDepositPaymentUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(generateDepositPaymentRequest),
+    },
+  );
+};
+
+export const getGenerateDepositPaymentMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof generateDepositPayment>>,
+    TError,
+    { data: BodyType<GenerateDepositPaymentRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof generateDepositPayment>>,
+  TError,
+  { data: BodyType<GenerateDepositPaymentRequest> },
+  TContext
+> => {
+  const mutationKey = ["generateDepositPayment"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof generateDepositPayment>>,
+    { data: BodyType<GenerateDepositPaymentRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return generateDepositPayment(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type GenerateDepositPaymentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof generateDepositPayment>>
+>;
+export type GenerateDepositPaymentMutationBody =
+  BodyType<GenerateDepositPaymentRequest>;
+export type GenerateDepositPaymentMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Create dynamic UPI payment link and QR payload for a deposit amount
+ */
+export const useGenerateDepositPayment = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof generateDepositPayment>>,
+    TError,
+    { data: BodyType<GenerateDepositPaymentRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof generateDepositPayment>>,
+  TError,
+  { data: BodyType<GenerateDepositPaymentRequest> },
+  TContext
+> => {
+  return useMutation(getGenerateDepositPaymentMutationOptions(options));
+};
 
 /**
  * @summary Deposit requests and history for current user
@@ -1722,6 +2882,501 @@ export function useAdminGetUsers<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getAdminGetUsersQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List members with global and per-user withdrawal fee
+ */
+export const getAdminGetWithdrawalFeesUrl = () => {
+  return `/api/admin/withdrawal-fees`;
+};
+
+export const adminGetWithdrawalFees = async (
+  options?: RequestInit,
+): Promise<AdminWithdrawalFeeList> => {
+  return customFetch<AdminWithdrawalFeeList>(getAdminGetWithdrawalFeesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAdminGetWithdrawalFeesQueryKey = () => {
+  return [`/api/admin/withdrawal-fees`] as const;
+};
+
+export const getAdminGetWithdrawalFeesQueryOptions = <
+  TData = Awaited<ReturnType<typeof adminGetWithdrawalFees>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof adminGetWithdrawalFees>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getAdminGetWithdrawalFeesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof adminGetWithdrawalFees>>
+  > = ({ signal }) => adminGetWithdrawalFees({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof adminGetWithdrawalFees>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type AdminGetWithdrawalFeesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof adminGetWithdrawalFees>>
+>;
+export type AdminGetWithdrawalFeesQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary List members with global and per-user withdrawal fee
+ */
+
+export function useAdminGetWithdrawalFees<
+  TData = Awaited<ReturnType<typeof adminGetWithdrawalFees>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof adminGetWithdrawalFees>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAdminGetWithdrawalFeesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Set a custom withdrawal fee for one member
+ */
+export const getAdminSetUserWithdrawalFeeUrl = (userId: string) => {
+  return `/api/admin/users/${userId}/withdrawal-fee`;
+};
+
+export const adminSetUserWithdrawalFee = async (
+  userId: string,
+  adminSetUserWithdrawalFeeRequest: AdminSetUserWithdrawalFeeRequest,
+  options?: RequestInit,
+): Promise<AdminUserWithdrawalFee> => {
+  return customFetch<AdminUserWithdrawalFee>(
+    getAdminSetUserWithdrawalFeeUrl(userId),
+    {
+      ...options,
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminSetUserWithdrawalFeeRequest),
+    },
+  );
+};
+
+export const getAdminSetUserWithdrawalFeeMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminSetUserWithdrawalFee>>,
+    TError,
+    { userId: string; data: BodyType<AdminSetUserWithdrawalFeeRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof adminSetUserWithdrawalFee>>,
+  TError,
+  { userId: string; data: BodyType<AdminSetUserWithdrawalFeeRequest> },
+  TContext
+> => {
+  const mutationKey = ["adminSetUserWithdrawalFee"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof adminSetUserWithdrawalFee>>,
+    { userId: string; data: BodyType<AdminSetUserWithdrawalFeeRequest> }
+  > = (props) => {
+    const { userId, data } = props ?? {};
+
+    return adminSetUserWithdrawalFee(userId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AdminSetUserWithdrawalFeeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof adminSetUserWithdrawalFee>>
+>;
+export type AdminSetUserWithdrawalFeeMutationBody =
+  BodyType<AdminSetUserWithdrawalFeeRequest>;
+export type AdminSetUserWithdrawalFeeMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Set a custom withdrawal fee for one member
+ */
+export const useAdminSetUserWithdrawalFee = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminSetUserWithdrawalFee>>,
+    TError,
+    { userId: string; data: BodyType<AdminSetUserWithdrawalFeeRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof adminSetUserWithdrawalFee>>,
+  TError,
+  { userId: string; data: BodyType<AdminSetUserWithdrawalFeeRequest> },
+  TContext
+> => {
+  return useMutation(getAdminSetUserWithdrawalFeeMutationOptions(options));
+};
+
+/**
+ * @summary Remove custom withdrawal fee (use global default)
+ */
+export const getAdminClearUserWithdrawalFeeUrl = (userId: string) => {
+  return `/api/admin/users/${userId}/withdrawal-fee`;
+};
+
+export const adminClearUserWithdrawalFee = async (
+  userId: string,
+  options?: RequestInit,
+): Promise<AdminUserWithdrawalFee> => {
+  return customFetch<AdminUserWithdrawalFee>(
+    getAdminClearUserWithdrawalFeeUrl(userId),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getAdminClearUserWithdrawalFeeMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminClearUserWithdrawalFee>>,
+    TError,
+    { userId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof adminClearUserWithdrawalFee>>,
+  TError,
+  { userId: string },
+  TContext
+> => {
+  const mutationKey = ["adminClearUserWithdrawalFee"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof adminClearUserWithdrawalFee>>,
+    { userId: string }
+  > = (props) => {
+    const { userId } = props ?? {};
+
+    return adminClearUserWithdrawalFee(userId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AdminClearUserWithdrawalFeeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof adminClearUserWithdrawalFee>>
+>;
+
+export type AdminClearUserWithdrawalFeeMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Remove custom withdrawal fee (use global default)
+ */
+export const useAdminClearUserWithdrawalFee = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminClearUserWithdrawalFee>>,
+    TError,
+    { userId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof adminClearUserWithdrawalFee>>,
+  TError,
+  { userId: string },
+  TContext
+> => {
+  return useMutation(getAdminClearUserWithdrawalFeeMutationOptions(options));
+};
+
+/**
+ * @summary Unilevel sponsor tree for a member (investment plan team)
+ */
+export const getAdminGetUserSponsorTreeUrl = (
+  userId: string,
+  params?: AdminGetUserSponsorTreeParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/users/${userId}/sponsor-tree?${stringifiedParams}`
+    : `/api/admin/users/${userId}/sponsor-tree`;
+};
+
+export const adminGetUserSponsorTree = async (
+  userId: string,
+  params?: AdminGetUserSponsorTreeParams,
+  options?: RequestInit,
+): Promise<SponsorTreeResponse> => {
+  return customFetch<SponsorTreeResponse>(
+    getAdminGetUserSponsorTreeUrl(userId, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getAdminGetUserSponsorTreeQueryKey = (
+  userId: string,
+  params?: AdminGetUserSponsorTreeParams,
+) => {
+  return [
+    `/api/admin/users/${userId}/sponsor-tree`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getAdminGetUserSponsorTreeQueryOptions = <
+  TData = Awaited<ReturnType<typeof adminGetUserSponsorTree>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  userId: string,
+  params?: AdminGetUserSponsorTreeParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof adminGetUserSponsorTree>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getAdminGetUserSponsorTreeQueryKey(userId, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof adminGetUserSponsorTree>>
+  > = ({ signal }) =>
+    adminGetUserSponsorTree(userId, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!userId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof adminGetUserSponsorTree>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type AdminGetUserSponsorTreeQueryResult = NonNullable<
+  Awaited<ReturnType<typeof adminGetUserSponsorTree>>
+>;
+export type AdminGetUserSponsorTreeQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Unilevel sponsor tree for a member (investment plan team)
+ */
+
+export function useAdminGetUserSponsorTree<
+  TData = Awaited<ReturnType<typeof adminGetUserSponsorTree>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  userId: string,
+  params?: AdminGetUserSponsorTreeParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof adminGetUserSponsorTree>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAdminGetUserSponsorTreeQueryOptions(
+    userId,
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Admin - Get binary tree for any user
+ */
+export const getAdminGetUserBinaryTreeUrl = (
+  userId: string,
+  params?: AdminGetUserBinaryTreeParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/users/${userId}/binary-tree?${stringifiedParams}`
+    : `/api/admin/users/${userId}/binary-tree`;
+};
+
+export const adminGetUserBinaryTree = async (
+  userId: string,
+  params?: AdminGetUserBinaryTreeParams,
+  options?: RequestInit,
+): Promise<BinaryTreeResponse> => {
+  return customFetch<BinaryTreeResponse>(
+    getAdminGetUserBinaryTreeUrl(userId, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getAdminGetUserBinaryTreeQueryKey = (
+  userId: string,
+  params?: AdminGetUserBinaryTreeParams,
+) => {
+  return [
+    `/api/admin/users/${userId}/binary-tree`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getAdminGetUserBinaryTreeQueryOptions = <
+  TData = Awaited<ReturnType<typeof adminGetUserBinaryTree>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  userId: string,
+  params?: AdminGetUserBinaryTreeParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof adminGetUserBinaryTree>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getAdminGetUserBinaryTreeQueryKey(userId, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof adminGetUserBinaryTree>>
+  > = ({ signal }) =>
+    adminGetUserBinaryTree(userId, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!userId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof adminGetUserBinaryTree>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type AdminGetUserBinaryTreeQueryResult = NonNullable<
+  Awaited<ReturnType<typeof adminGetUserBinaryTree>>
+>;
+export type AdminGetUserBinaryTreeQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Admin - Get binary tree for any user
+ */
+
+export function useAdminGetUserBinaryTree<
+  TData = Awaited<ReturnType<typeof adminGetUserBinaryTree>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  userId: string,
+  params?: AdminGetUserBinaryTreeParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof adminGetUserBinaryTree>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAdminGetUserBinaryTreeQueryOptions(
+    userId,
+    params,
+    options,
+  );
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -2695,7 +4350,169 @@ export function useAdminGetIncomeHistory<
 }
 
 /**
- * @summary Admin - Get platform settings (withdrawal fee)
+ * @summary Admin - Get global level income schedule
+ */
+export const getAdminGetLevelIncomeUrl = () => {
+  return `/api/admin/level-income`;
+};
+
+export const adminGetLevelIncome = async (
+  options?: RequestInit,
+): Promise<LevelIncomeConfig> => {
+  return customFetch<LevelIncomeConfig>(getAdminGetLevelIncomeUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAdminGetLevelIncomeQueryKey = () => {
+  return [`/api/admin/level-income`] as const;
+};
+
+export const getAdminGetLevelIncomeQueryOptions = <
+  TData = Awaited<ReturnType<typeof adminGetLevelIncome>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof adminGetLevelIncome>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAdminGetLevelIncomeQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof adminGetLevelIncome>>
+  > = ({ signal }) => adminGetLevelIncome({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof adminGetLevelIncome>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type AdminGetLevelIncomeQueryResult = NonNullable<
+  Awaited<ReturnType<typeof adminGetLevelIncome>>
+>;
+export type AdminGetLevelIncomeQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Admin - Get global level income schedule
+ */
+
+export function useAdminGetLevelIncome<
+  TData = Awaited<ReturnType<typeof adminGetLevelIncome>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof adminGetLevelIncome>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAdminGetLevelIncomeQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Admin - Replace global level income tiers (up to 32 levels)
+ */
+export const getAdminUpdateLevelIncomeUrl = () => {
+  return `/api/admin/level-income`;
+};
+
+export const adminUpdateLevelIncome = async (
+  adminUpdateLevelIncomeRequest: AdminUpdateLevelIncomeRequest,
+  options?: RequestInit,
+): Promise<LevelIncomeConfig> => {
+  return customFetch<LevelIncomeConfig>(getAdminUpdateLevelIncomeUrl(), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminUpdateLevelIncomeRequest),
+  });
+};
+
+export const getAdminUpdateLevelIncomeMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminUpdateLevelIncome>>,
+    TError,
+    { data: BodyType<AdminUpdateLevelIncomeRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof adminUpdateLevelIncome>>,
+  TError,
+  { data: BodyType<AdminUpdateLevelIncomeRequest> },
+  TContext
+> => {
+  const mutationKey = ["adminUpdateLevelIncome"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof adminUpdateLevelIncome>>,
+    { data: BodyType<AdminUpdateLevelIncomeRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return adminUpdateLevelIncome(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AdminUpdateLevelIncomeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof adminUpdateLevelIncome>>
+>;
+export type AdminUpdateLevelIncomeMutationBody =
+  BodyType<AdminUpdateLevelIncomeRequest>;
+export type AdminUpdateLevelIncomeMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Admin - Replace global level income tiers (up to 32 levels)
+ */
+export const useAdminUpdateLevelIncome = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminUpdateLevelIncome>>,
+    TError,
+    { data: BodyType<AdminUpdateLevelIncomeRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof adminUpdateLevelIncome>>,
+  TError,
+  { data: BodyType<AdminUpdateLevelIncomeRequest> },
+  TContext
+> => {
+  return useMutation(getAdminUpdateLevelIncomeMutationOptions(options));
+};
+
+/**
+ * @summary Admin - Get platform settings (fees)
  */
 export const getAdminGetSettingsUrl = () => {
   return `/api/admin/settings`;
@@ -2746,7 +4563,7 @@ export type AdminGetSettingsQueryResult = NonNullable<
 export type AdminGetSettingsQueryError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Admin - Get platform settings (withdrawal fee)
+ * @summary Admin - Get platform settings (fees)
  */
 
 export function useAdminGetSettings<
@@ -2770,7 +4587,7 @@ export function useAdminGetSettings<
 }
 
 /**
- * @summary Admin - Update withdrawal fee percentage
+ * @summary Admin - Update fee percentages (withdrawal and/or peer send / gift plan)
  */
 export const getAdminUpdateSettingsUrl = () => {
   return `/api/admin/settings`;
@@ -2834,7 +4651,7 @@ export type AdminUpdateSettingsMutationBody =
 export type AdminUpdateSettingsMutationError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Admin - Update withdrawal fee percentage
+ * @summary Admin - Update fee percentages (withdrawal and/or peer send / gift plan)
  */
 export const useAdminUpdateSettings = <
   TError = ErrorType<ErrorResponse>,

@@ -5,9 +5,13 @@
  * ROI Investment Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AdminUpdatePaymentSettingsRequestDepositMethod } from "./adminUpdatePaymentSettingsRequestDepositMethod";
 
 export interface AdminUpdatePaymentSettingsRequest {
   /** Public URL after upload; may be empty string to clear */
   qrCodeImageUrl?: string;
   isPaymentEnabled?: boolean;
+  depositMethod?: AdminUpdatePaymentSettingsRequestDepositMethod;
+  upiIds?: string[];
+  payeeName?: string;
 }

@@ -16,6 +16,7 @@ export interface AdminDeposit {
   transactionId: string;
   screenshotUrl: string;
   note?: string | null;
+  payeeUpiId?: string | null;
   status: AdminDepositStatus;
   createdAt: Date;
   updatedAt?: Date | null;

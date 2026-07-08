@@ -5,6 +5,8 @@
  * ROI Investment Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { CreatePlanRequestPlanKind } from "./createPlanRequestPlanKind";
+import type { LevelIncomeTier } from "./levelIncomeTier";
 
 export interface CreatePlanRequest {
   name: string;
@@ -14,4 +16,15 @@ export interface CreatePlanRequest {
   maxDays: number;
   isActive?: boolean;
   description?: string;
+  directBonus?: number;
+  binaryPairVolume?: number;
+  binaryPairPayout?: number;
+  /**
+   * @minimum 1
+   * @maximum 100
+   */
+  roiPoolPercent?: number;
+  levelIncomeEnabled?: boolean;
+  levelIncomeTiers?: LevelIncomeTier[];
+  planKind?: CreatePlanRequestPlanKind;
 }

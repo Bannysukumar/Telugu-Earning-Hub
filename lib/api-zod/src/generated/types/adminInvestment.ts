@@ -27,4 +27,9 @@ export interface AdminInvestment {
   status: AdminInvestmentStatus;
   startDate: Date;
   lastRoiUpdate?: Date | null;
+  /**
+   * @minimum 1
+   * @maximum 100
+   */
+  roiPoolPercent: number;
 }

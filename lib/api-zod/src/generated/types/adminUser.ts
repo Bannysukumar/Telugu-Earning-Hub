@@ -5,6 +5,7 @@
  * ROI Investment Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AdminDirectMember } from "./adminDirectMember";
 import type { AdminUserRole } from "./adminUserRole";
 
 export interface AdminUser {
@@ -19,4 +20,10 @@ export interface AdminUser {
   totalEarned: number;
   activeInvestments: number;
   createdAt: Date;
+  /** User's shareable referral code (uppercase), if assigned. */
+  referralCode: string | null;
+  /** Users who joined directly on this member's left leg (by referrerId + binarySide). */
+  directLeft: AdminDirectMember[];
+  /** Users who joined directly on this member's right leg (by referrerId + binarySide). */
+  directRight: AdminDirectMember[];
 }

@@ -16,4 +16,14 @@ export interface User {
   walletBalance: number;
   isActive: boolean;
   createdAt: Date;
+  /** Uppercase shareable code for referral signup links. */
+  referralCode: string | null;
+  /** Count of direct referrals who activated at least one investment (withdrawal gate). */
+  qualifiedDirectReferrals: number;
+  /** Direct sponsor user id when joined with a referral code. */
+  referrerId: string | null;
+  /** Display name of direct sponsor (upline), when referred. */
+  referrerName: string | null;
+  /** Email of direct sponsor (upline), when referred. */
+  referrerEmail: string | null;
 }

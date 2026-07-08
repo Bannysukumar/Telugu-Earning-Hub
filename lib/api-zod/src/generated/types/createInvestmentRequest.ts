@@ -8,4 +8,6 @@
 
 export interface CreateInvestmentRequest {
   planId: string;
+  /** Optional. When set to another member's user id, that member receives the investment and the plan cost is debited from your wallet (sponsored activation). Omit or set to your own id to activate for yourself. */
+  beneficiaryUserId?: string;
 }

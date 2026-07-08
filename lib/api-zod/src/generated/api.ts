@@ -15,11 +15,53 @@ export const HealthCheckResponse = zod.object({
 });
 
 /**
+ * @summary Public platform feature flags (binary plan visibility)
+ */
+export const GetPlatformFeaturesResponse = zod.object({
+  binaryPlanEnabled: zod
+    .boolean()
+    .describe(
+      "When false, binary UI and binary pair payouts are hidden\/disabled site-wide.",
+    ),
+  directIncomeEnabled: zod
+    .boolean()
+    .describe(
+      "When false, direct referral bonus payouts and per-plan direct bonus fields are hidden.",
+    ),
+});
+
+/**
+ * @summary Validate a sponsor referral code and return the sponsor display name (before register)
+ */
+export const getReferralLookupQueryCodeMin = 2;
+export const getReferralLookupQueryCodeMax = 32;
+
+export const GetReferralLookupQueryParams = zod.object({
+  code: zod.coerce
+    .string()
+    .min(getReferralLookupQueryCodeMin)
+    .max(getReferralLookupQueryCodeMax)
+    .describe("Sponsor referral code (case-insensitive)"),
+});
+
+export const GetReferralLookupResponse = zod.object({
+  valid: zod.boolean(),
+  sponsorName: zod
+    .string()
+    .optional()
+    .describe("Sponsor full name when valid is true"),
+  error: zod.string().optional().describe("Reason when valid is false"),
+});
+
+/**
  * @summary Register a new user
  */
 export const registerBodyPasswordMin = 6;
 
 export const registerBodyConfirmPasswordMin = 6;
+
+export const registerBodyReferralCodeMin = 2;
+export const registerBodyReferralCodeMax = 32;
 
 export const RegisterBody = zod.object({
   name: zod.string(),
@@ -33,6 +75,19 @@ export const RegisterBody = zod.object({
     .string()
     .describe(
       "Mobile number; digits only are stored after normalization (10–15 digits).",
+    ),
+  referralCode: zod
+    .string()
+    .min(registerBodyReferralCodeMin)
+    .max(registerBodyReferralCodeMax)
+    .describe(
+      "Sponsor referral code (case-insensitive). Must match an existing user; validate with GET \/auth\/referral-lookup before submit.",
+    ),
+  binaryPreferredSide: zod
+    .enum(["left", "right"])
+    .optional()
+    .describe(
+      "Required when binary plan is enabled; join as sponsor's immediate left or right leg.",
     ),
 });
 
@@ -54,6 +109,27 @@ export const LoginResponse = zod.object({
     walletBalance: zod.number(),
     isActive: zod.boolean(),
     createdAt: zod.date(),
+    referralCode: zod
+      .string()
+      .nullable()
+      .describe("Uppercase shareable code for referral signup links."),
+    qualifiedDirectReferrals: zod
+      .number()
+      .describe(
+        "Count of direct referrals who activated at least one investment (withdrawal gate).",
+      ),
+    referrerId: zod
+      .string()
+      .nullable()
+      .describe("Direct sponsor user id when joined with a referral code."),
+    referrerName: zod
+      .string()
+      .nullable()
+      .describe("Display name of direct sponsor (upline), when referred."),
+    referrerEmail: zod
+      .string()
+      .nullable()
+      .describe("Email of direct sponsor (upline), when referred."),
   }),
   token: zod.string(),
 });
@@ -77,11 +153,39 @@ export const GetMeResponse = zod.object({
   walletBalance: zod.number(),
   isActive: zod.boolean(),
   createdAt: zod.date(),
+  referralCode: zod
+    .string()
+    .nullable()
+    .describe("Uppercase shareable code for referral signup links."),
+  qualifiedDirectReferrals: zod
+    .number()
+    .describe(
+      "Count of direct referrals who activated at least one investment (withdrawal gate).",
+    ),
+  referrerId: zod
+    .string()
+    .nullable()
+    .describe("Direct sponsor user id when joined with a referral code."),
+  referrerName: zod
+    .string()
+    .nullable()
+    .describe("Display name of direct sponsor (upline), when referred."),
+  referrerEmail: zod
+    .string()
+    .nullable()
+    .describe("Email of direct sponsor (upline), when referred."),
 });
 
 /**
  * @summary Get all active investment plans
  */
+export const getPlansResponseRoiPoolPercentMax = 100;
+
+export const getPlansResponseLevelIncomeTiersItemLevelMax = 32;
+
+export const getPlansResponseLevelIncomeTiersItemPercentMin = 0;
+export const getPlansResponseLevelIncomeTiersItemPercentMax = 100;
+
 export const GetPlansResponseItem = zod.object({
   id: zod.string(),
   name: zod.string(),
@@ -91,12 +195,62 @@ export const GetPlansResponseItem = zod.object({
   maxDays: zod.number(),
   isActive: zod.boolean(),
   description: zod.string().optional(),
+  directBonus: zod
+    .number()
+    .describe(
+      "Rupees paid to direct sponsor on referral's first investment (default 20).",
+    ),
+  binaryPairVolume: zod
+    .number()
+    .describe("BV required on each leg to form one binary pair (default 200)."),
+  binaryPairPayout: zod
+    .number()
+    .describe("Rupees paid per binary pair to upline (default 80)."),
+  roiPoolPercent: zod
+    .number()
+    .min(1)
+    .max(getPlansResponseRoiPoolPercentMax)
+    .describe("Percent of plan dailyRoi credited each ROI day (default 100)."),
+  levelIncomeEnabled: zod
+    .boolean()
+    .describe(
+      "When true, downline daily ROI pays uplines per this plan's level-income schedule (or global default when tiers are omitted).",
+    ),
+  levelIncomeTiers: zod
+    .array(
+      zod.object({
+        level: zod
+          .number()
+          .min(1)
+          .max(getPlansResponseLevelIncomeTiersItemLevelMax)
+          .describe("Generation from downline (1 = direct sponsor)."),
+        percent: zod
+          .number()
+          .min(getPlansResponseLevelIncomeTiersItemPercentMin)
+          .max(getPlansResponseLevelIncomeTiersItemPercentMax)
+          .describe(
+            "Percent of downline credited daily ROI paid at this level.",
+          ),
+      }),
+    )
+    .optional()
+    .describe(
+      "Per-plan level schedule. Levels with 0% are disabled and receive no payout.",
+    ),
+  planKind: zod
+    .enum(["mlm", "standalone"])
+    .optional()
+    .describe(
+      "Standalone = ROI only, no referral\/binary, no gift activation, no 2-referral withdrawal gate.",
+    ),
 });
 export const GetPlansResponse = zod.array(GetPlansResponseItem);
 
 /**
  * @summary Get current user's investments
  */
+export const getMyInvestmentsResponseRoiPoolPercentMax = 100;
+
 export const GetMyInvestmentsResponseItem = zod.object({
   id: zod.string(),
   planId: zod.string(),
@@ -113,14 +267,27 @@ export const GetMyInvestmentsResponseItem = zod.object({
   status: zod.enum(["active", "completed", "manually_stopped"]),
   startDate: zod.date(),
   lastRoiUpdate: zod.date().nullish(),
+  roiPoolPercent: zod
+    .number()
+    .min(1)
+    .max(getMyInvestmentsResponseRoiPoolPercentMax)
+    .describe(
+      "Snapshot from plan at activation; percent of dailyRoi paid each ROI day.",
+    ),
 });
 export const GetMyInvestmentsResponse = zod.array(GetMyInvestmentsResponseItem);
 
 /**
- * @summary Create a new investment
+ * @summary Activate a plan (deducts from your wallet). Optionally activate for another member you sponsor.
  */
 export const CreateInvestmentBody = zod.object({
   planId: zod.string(),
+  beneficiaryUserId: zod
+    .string()
+    .optional()
+    .describe(
+      "Optional. When set to another member's user id, that member receives the investment and the plan cost is debited from your wallet (sponsored activation). Omit or set to your own id to activate for yourself.",
+    ),
 });
 
 /**
@@ -138,17 +305,48 @@ export const GetMyWithdrawalsResponseItem = zod.object({
   bankDetails: zod.string().nullish(),
   createdAt: zod.date(),
   updatedAt: zod.date().nullish(),
+  bankAccountSaveWarning: zod
+    .string()
+    .nullish()
+    .describe(
+      "Present when withdrawal succeeded but profile could not store bank details (e.g. saved-account limit)",
+    ),
 });
 export const GetMyWithdrawalsResponse = zod.array(GetMyWithdrawalsResponseItem);
 
 /**
  * @summary Request a withdrawal
  */
-export const createWithdrawalBodyAmountMin = 500;
+export const createWithdrawalBodyAmountMin = 100;
+
+export const createWithdrawalBodyBankAccountLabelMax = 80;
 
 export const CreateWithdrawalBody = zod.object({
   amount: zod.number().min(createWithdrawalBodyAmountMin),
-  bankDetails: zod.string().optional(),
+  bankDetails: zod
+    .string()
+    .optional()
+    .describe(
+      "Legacy multiline bank text (alternative to structured fields or bankAccountId)",
+    ),
+  bankAccountId: zod
+    .string()
+    .optional()
+    .describe("Use a profile-saved bank account"),
+  bankName: zod.string().optional(),
+  ifscCode: zod.string().optional(),
+  accountNumber: zod.string().optional(),
+  accountHolderName: zod.string().optional(),
+  saveBankAccount: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When submitting structured fields, defaults true — save to profile after success unless false",
+    ),
+  bankAccountLabel: zod
+    .string()
+    .max(createWithdrawalBodyBankAccountLabelMax)
+    .optional(),
 });
 
 /**
@@ -158,8 +356,24 @@ export const GetWithdrawalFeeSettingsResponse = zod.object({
   withdrawalFeePercent: zod
     .number()
     .describe(
-      "Percent deducted from requested gross (0–100). Default 10 when unset in database.",
+      "Effective percent for this member (custom override or global default).",
     ),
+  globalWithdrawalFeePercent: zod
+    .number()
+    .optional()
+    .describe("Site-wide default from admin Settings."),
+  customWithdrawalFeePercent: zod
+    .number()
+    .nullish()
+    .describe("Per-member override when set; null means use global default."),
+  peerTransferFeePercent: zod
+    .number()
+    .describe(
+      "Percent applied to peer wallet sends and gift-plan activations (0–100). Default 0 when unset.",
+    ),
+  minWithdrawalAmount: zod
+    .number()
+    .describe("Minimum gross withdrawal request in ₹."),
 });
 
 /**
@@ -172,6 +386,28 @@ export const GetDashboardResponse = zod.object({
   activeInvestments: zod.number(),
   completedInvestments: zod.number(),
   pendingWithdrawals: zod.number(),
+});
+
+/**
+ * @summary Change account password
+ */
+
+export const changePasswordBodyNewPasswordMin = 6;
+
+export const changePasswordBodyConfirmNewPasswordMin = 6;
+
+export const ChangePasswordBody = zod.object({
+  currentPassword: zod.string().min(1),
+  newPassword: zod.string().min(changePasswordBodyNewPasswordMin),
+  confirmNewPassword: zod
+    .string()
+    .min(changePasswordBodyConfirmNewPasswordMin)
+    .describe("Must match newPassword"),
+});
+
+export const ChangePasswordResponse = zod.object({
+  message: zod.string(),
+  token: zod.string().describe("Fresh Firebase ID token after password change"),
 });
 
 /**
@@ -190,6 +426,155 @@ export const UpdateProfileResponse = zod.object({
   walletBalance: zod.number(),
   isActive: zod.boolean(),
   createdAt: zod.date(),
+  referralCode: zod
+    .string()
+    .nullable()
+    .describe("Uppercase shareable code for referral signup links."),
+  qualifiedDirectReferrals: zod
+    .number()
+    .describe(
+      "Count of direct referrals who activated at least one investment (withdrawal gate).",
+    ),
+  referrerId: zod
+    .string()
+    .nullable()
+    .describe("Direct sponsor user id when joined with a referral code."),
+  referrerName: zod
+    .string()
+    .nullable()
+    .describe("Display name of direct sponsor (upline), when referred."),
+  referrerEmail: zod
+    .string()
+    .nullable()
+    .describe("Email of direct sponsor (upline), when referred."),
+});
+
+/**
+ * @summary List saved withdrawal bank accounts
+ */
+export const ListMyBankAccountsResponseItem = zod.object({
+  id: zod.string(),
+  label: zod.string().nullish(),
+  bankName: zod.string(),
+  ifscCode: zod.string(),
+  accountNumber: zod.string(),
+  accountHolderName: zod.string(),
+  createdAt: zod.date(),
+});
+export const ListMyBankAccountsResponse = zod.array(
+  ListMyBankAccountsResponseItem,
+);
+
+/**
+ * @summary Add or merge a saved bank account (by IFSC + account number)
+ */
+export const createMyBankAccountBodyBankNameMin = 2;
+
+export const createMyBankAccountBodyAccountHolderNameMin = 2;
+
+export const createMyBankAccountBodyLabelMax = 80;
+
+export const CreateMyBankAccountBody = zod.object({
+  bankName: zod.string().min(createMyBankAccountBodyBankNameMin),
+  ifscCode: zod.string(),
+  accountNumber: zod.string(),
+  accountHolderName: zod
+    .string()
+    .min(createMyBankAccountBodyAccountHolderNameMin),
+  label: zod.string().max(createMyBankAccountBodyLabelMax).optional(),
+});
+
+/**
+ * @summary Update a saved bank account
+ */
+export const UpdateMyBankAccountParams = zod.object({
+  accountId: zod.coerce.string(),
+});
+
+export const updateMyBankAccountBodyBankNameMin = 2;
+
+export const updateMyBankAccountBodyAccountHolderNameMin = 2;
+
+export const updateMyBankAccountBodyLabelMax = 80;
+
+export const UpdateMyBankAccountBody = zod.object({
+  bankName: zod.string().min(updateMyBankAccountBodyBankNameMin).optional(),
+  ifscCode: zod.string().optional(),
+  accountNumber: zod.string().optional(),
+  accountHolderName: zod
+    .string()
+    .min(updateMyBankAccountBodyAccountHolderNameMin)
+    .optional(),
+  label: zod.string().max(updateMyBankAccountBodyLabelMax).nullish(),
+});
+
+export const UpdateMyBankAccountResponse = zod.object({
+  id: zod.string(),
+  label: zod.string().nullish(),
+  bankName: zod.string(),
+  ifscCode: zod.string(),
+  accountNumber: zod.string(),
+  accountHolderName: zod.string(),
+  createdAt: zod.date(),
+});
+
+/**
+ * @summary Remove a saved bank account
+ */
+export const DeleteMyBankAccountParams = zod.object({
+  accountId: zod.coerce.string(),
+});
+
+/**
+ * @summary Transfer wallet balance to another member
+ */
+
+export const transferWalletToUserBodyToReferralCodeMin = 2;
+export const transferWalletToUserBodyToReferralCodeMax = 32;
+
+export const TransferWalletToUserBody = zod
+  .object({
+    amount: zod.number().min(1),
+    toUserId: zod.string().optional(),
+    toEmail: zod.string().email().optional(),
+    toReferralCode: zod
+      .string()
+      .min(transferWalletToUserBodyToReferralCodeMin)
+      .max(transferWalletToUserBodyToReferralCodeMax)
+      .optional(),
+  })
+  .describe("Exactly one destination field must be provided.");
+
+export const TransferWalletToUserResponse = zod.object({
+  walletBalance: zod
+    .number()
+    .describe("Your wallet balance after the transfer"),
+  recipientId: zod.string(),
+  recipientName: zod.string(),
+  feePercent: zod
+    .number()
+    .describe("Platform fee percent applied to this transfer (0–100)"),
+  feeAmount: zod
+    .number()
+    .describe("Rupees retained by the platform from the gross amount sent"),
+  recipientReceived: zod
+    .number()
+    .describe("Net amount credited to the recipient wallet"),
+});
+
+/**
+ * @summary Resolve another member by user id, email, or referral code (for transfers / gifting)
+ */
+export const ResolveMemberForTransferQueryParams = zod.object({
+  userId: zod.coerce.string().optional(),
+  email: zod.coerce.string().optional(),
+  referralCode: zod.coerce.string().optional(),
+});
+
+export const ResolveMemberForTransferResponse = zod.object({
+  id: zod.string(),
+  name: zod.string(),
+  referralCode: zod.string().nullable(),
 });
 
 /**
@@ -209,7 +594,15 @@ export const GetMyIncomeHistoryResponse = zod.object({
       userId: zod.string(),
       investmentId: zod.string(),
       amount: zod.number(),
-      type: zod.enum(["ROI", "ADJUSTMENT", "WITHDRAWAL", "INVESTMENT"]),
+      type: zod.enum([
+        "ROI",
+        "ADJUSTMENT",
+        "WITHDRAWAL",
+        "INVESTMENT",
+        "REFERRAL_BONUS",
+        "BINARY_PAIR",
+        "LEVEL_INCOME",
+      ]),
       date: zod.date(),
       planAmount: zod.number(),
       dayNumber: zod.number(),
@@ -223,12 +616,125 @@ export const GetMyIncomeHistoryResponse = zod.object({
 });
 
 /**
+ * @summary Direct referrals (sponsor level) for the current user
+ */
+export const GetMyDirectLevelResponse = zod.object({
+  directs: zod.array(
+    zod.object({
+      id: zod.string(),
+      name: zod.string(),
+      email: zod.string(),
+      referralCode: zod.string().nullable(),
+      binarySide: zod.enum(["left", "right"]).nullable(),
+      createdAt: zod.date(),
+      hasActivatedInvestment: zod.boolean(),
+      activeInvestmentsCount: zod.number(),
+      totalInvested: zod.number(),
+    }),
+  ),
+});
+
+/**
+ * @summary Unilevel sponsor tree for investment-plan genealogy
+ */
+export const getMySponsorTreeQueryMaxDepthDefault = 5;
+export const getMySponsorTreeQueryMaxDepthMax = 8;
+
+export const GetMySponsorTreeQueryParams = zod.object({
+  maxDepth: zod.coerce
+    .number()
+    .min(1)
+    .max(getMySponsorTreeQueryMaxDepthMax)
+    .default(getMySponsorTreeQueryMaxDepthDefault),
+});
+
+export const GetMySponsorTreeResponse = zod.object({
+  root: zod.object({
+    id: zod.string(),
+    name: zod.string(),
+    referralCode: zod.string().nullable(),
+    hasActivatedInvestment: zod.boolean(),
+    activeInvestmentsCount: zod.number(),
+    totalInvested: zod.number(),
+    children: zod
+      .array(zod.unknown())
+      .describe("Direct referrals sponsored by this member (unilevel)"),
+  }),
+  maxDepth: zod.number(),
+});
+
+/**
+ * @summary Binary placement tree under the current user (left/right legs)
+ */
+export const getMyBinaryTreeQueryMaxDepthDefault = 5;
+export const getMyBinaryTreeQueryMaxDepthMax = 8;
+
+export const GetMyBinaryTreeQueryParams = zod.object({
+  maxDepth: zod.coerce
+    .number()
+    .min(1)
+    .max(getMyBinaryTreeQueryMaxDepthMax)
+    .default(getMyBinaryTreeQueryMaxDepthDefault)
+    .describe(
+      "Maximum depth below you to load (1 = only your immediate binary children)",
+    ),
+});
+
+export const GetMyBinaryTreeResponse = zod.object({
+  root: zod.object({
+    id: zod.string(),
+    name: zod.string(),
+    binarySide: zod
+      .enum(["left", "right"])
+      .nullable()
+      .describe("Placement under parent (null for the root node — you)"),
+    leftTeam: zod
+      .array(zod.unknown())
+      .describe(
+        "All members placed directly on this node's left leg (newest last)",
+      ),
+    rightTeam: zod
+      .array(zod.unknown())
+      .describe(
+        "All members placed directly on this node's right leg (newest last)",
+      ),
+  }),
+  maxDepth: zod.number(),
+});
+
+/**
  * @summary QR / manual deposit settings for add-fund flow
  */
 export const GetUserPaymentSettingsResponse = zod.object({
   qrCodeImageUrl: zod.string(),
   isPaymentEnabled: zod.boolean(),
+  depositMethod: zod
+    .enum(["legacy_qr", "dynamic_upi"])
+    .describe(
+      "legacy_qr = static uploaded QR; dynamic_upi = amount-specific UPI link",
+    ),
+  upiIds: zod
+    .array(zod.string())
+    .describe(
+      "UPI VPAs for dynamic deposits (one chosen at random per payment)",
+    ),
+  payeeName: zod.string().describe("Payee name shown in UPI apps"),
   updatedAt: zod.date().nullish(),
+});
+
+/**
+ * @summary Create dynamic UPI payment link and QR payload for a deposit amount
+ */
+
+export const GenerateDepositPaymentBody = zod.object({
+  amount: zod.number().min(1),
+});
+
+export const GenerateDepositPaymentResponse = zod.object({
+  amount: zod.number(),
+  selectedUpiId: zod.string(),
+  payeeName: zod.string(),
+  upiDeepLink: zod.string().describe("UPI URI for QR and Pay Now"),
 });
 
 /**
@@ -242,6 +748,7 @@ export const GetMyDepositsResponse = zod.object({
       transactionId: zod.string(),
       screenshotUrl: zod.string(),
       note: zod.string().nullish(),
+      payeeUpiId: zod.string().nullish(),
       status: zod.enum(["pending", "approved", "rejected"]),
       createdAt: zod.date(),
       updatedAt: zod.date().nullish(),
@@ -255,6 +762,7 @@ export const GetMyDepositsResponse = zod.object({
       transactionId: zod.string(),
       screenshotUrl: zod.string(),
       note: zod.string().nullish(),
+      payeeUpiId: zod.string().nullish(),
       status: zod.enum(["pending", "approved", "rejected"]),
       createdAt: zod.date(),
       updatedAt: zod.date().nullish(),
@@ -268,6 +776,17 @@ export const GetMyDepositsResponse = zod.object({
 export const AdminGetPaymentSettingsResponse = zod.object({
   qrCodeImageUrl: zod.string(),
   isPaymentEnabled: zod.boolean(),
+  depositMethod: zod
+    .enum(["legacy_qr", "dynamic_upi"])
+    .describe(
+      "legacy_qr = static uploaded QR; dynamic_upi = amount-specific UPI link",
+    ),
+  upiIds: zod
+    .array(zod.string())
+    .describe(
+      "UPI VPAs for dynamic deposits (one chosen at random per payment)",
+    ),
+  payeeName: zod.string().describe("Payee name shown in UPI apps"),
   updatedAt: zod.date().nullish(),
 });
 
@@ -280,11 +799,25 @@ export const AdminUpdatePaymentSettingsBody = zod.object({
     .optional()
     .describe("Public URL after upload; may be empty string to clear"),
   isPaymentEnabled: zod.boolean().optional(),
+  depositMethod: zod.enum(["legacy_qr", "dynamic_upi"]).optional(),
+  upiIds: zod.array(zod.string()).optional(),
+  payeeName: zod.string().optional(),
 });
 
 export const AdminUpdatePaymentSettingsResponse = zod.object({
   qrCodeImageUrl: zod.string(),
   isPaymentEnabled: zod.boolean(),
+  depositMethod: zod
+    .enum(["legacy_qr", "dynamic_upi"])
+    .describe(
+      "legacy_qr = static uploaded QR; dynamic_upi = amount-specific UPI link",
+    ),
+  upiIds: zod
+    .array(zod.string())
+    .describe(
+      "UPI VPAs for dynamic deposits (one chosen at random per payment)",
+    ),
+  payeeName: zod.string().describe("Payee name shown in UPI apps"),
   updatedAt: zod.date().nullish(),
 });
 
@@ -300,6 +833,7 @@ export const AdminGetDepositsResponseItem = zod.object({
   transactionId: zod.string(),
   screenshotUrl: zod.string(),
   note: zod.string().nullish(),
+  payeeUpiId: zod.string().nullish(),
   status: zod.enum(["pending", "approved", "rejected"]),
   createdAt: zod.date(),
   updatedAt: zod.date().nullish(),
@@ -326,6 +860,7 @@ export const AdminUpdateDepositResponse = zod.object({
   transactionId: zod.string(),
   screenshotUrl: zod.string(),
   note: zod.string().nullish(),
+  payeeUpiId: zod.string().nullish(),
   status: zod.enum(["pending", "approved", "rejected"]),
   createdAt: zod.date(),
   updatedAt: zod.date().nullish(),
@@ -346,8 +881,177 @@ export const AdminGetUsersResponseItem = zod.object({
   totalEarned: zod.number(),
   activeInvestments: zod.number(),
   createdAt: zod.date(),
+  referralCode: zod
+    .string()
+    .nullable()
+    .describe("User's shareable referral code (uppercase), if assigned."),
+  directLeft: zod
+    .array(
+      zod.object({
+        id: zod.string(),
+        name: zod.string(),
+      }),
+    )
+    .describe(
+      "Users who joined directly on this member's left leg (by referrerId + binarySide).",
+    ),
+  directRight: zod
+    .array(
+      zod.object({
+        id: zod.string(),
+        name: zod.string(),
+      }),
+    )
+    .describe(
+      "Users who joined directly on this member's right leg (by referrerId + binarySide).",
+    ),
 });
 export const AdminGetUsersResponse = zod.array(AdminGetUsersResponseItem);
+
+/**
+ * @summary List members with global and per-user withdrawal fee
+ */
+export const AdminGetWithdrawalFeesResponse = zod.object({
+  globalWithdrawalFeePercent: zod.number(),
+  users: zod.array(
+    zod.object({
+      userId: zod.string(),
+      name: zod.string(),
+      email: zod.string(),
+      customWithdrawalFeePercent: zod.number().nullish(),
+      effectiveWithdrawalFeePercent: zod.number(),
+    }),
+  ),
+});
+
+/**
+ * @summary Set a custom withdrawal fee for one member
+ */
+export const AdminSetUserWithdrawalFeeParams = zod.object({
+  userId: zod.coerce.string(),
+});
+
+export const adminSetUserWithdrawalFeeBodyWithdrawalFeePercentMin = 0;
+export const adminSetUserWithdrawalFeeBodyWithdrawalFeePercentMax = 100;
+
+export const AdminSetUserWithdrawalFeeBody = zod.object({
+  withdrawalFeePercent: zod
+    .number()
+    .min(adminSetUserWithdrawalFeeBodyWithdrawalFeePercentMin)
+    .max(adminSetUserWithdrawalFeeBodyWithdrawalFeePercentMax),
+});
+
+export const AdminSetUserWithdrawalFeeResponse = zod.object({
+  userId: zod.string(),
+  name: zod.string(),
+  email: zod.string(),
+  customWithdrawalFeePercent: zod
+    .number()
+    .nullish()
+    .describe("Admin-set override; null when using global default."),
+  effectiveWithdrawalFeePercent: zod
+    .number()
+    .describe("Fee applied on next withdrawal for this member."),
+  globalWithdrawalFeePercent: zod
+    .number()
+    .describe("Current site-wide default (Settings)."),
+});
+
+/**
+ * @summary Remove custom withdrawal fee (use global default)
+ */
+export const AdminClearUserWithdrawalFeeParams = zod.object({
+  userId: zod.coerce.string(),
+});
+
+export const AdminClearUserWithdrawalFeeResponse = zod.object({
+  userId: zod.string(),
+  name: zod.string(),
+  email: zod.string(),
+  customWithdrawalFeePercent: zod
+    .number()
+    .nullish()
+    .describe("Admin-set override; null when using global default."),
+  effectiveWithdrawalFeePercent: zod
+    .number()
+    .describe("Fee applied on next withdrawal for this member."),
+  globalWithdrawalFeePercent: zod
+    .number()
+    .describe("Current site-wide default (Settings)."),
+});
+
+/**
+ * @summary Unilevel sponsor tree for a member (investment plan team)
+ */
+export const AdminGetUserSponsorTreeParams = zod.object({
+  userId: zod.coerce.string(),
+});
+
+export const adminGetUserSponsorTreeQueryMaxDepthDefault = 5;
+export const adminGetUserSponsorTreeQueryMaxDepthMax = 8;
+
+export const AdminGetUserSponsorTreeQueryParams = zod.object({
+  maxDepth: zod.coerce
+    .number()
+    .min(1)
+    .max(adminGetUserSponsorTreeQueryMaxDepthMax)
+    .default(adminGetUserSponsorTreeQueryMaxDepthDefault),
+});
+
+export const AdminGetUserSponsorTreeResponse = zod.object({
+  root: zod.object({
+    id: zod.string(),
+    name: zod.string(),
+    referralCode: zod.string().nullable(),
+    hasActivatedInvestment: zod.boolean(),
+    activeInvestmentsCount: zod.number(),
+    totalInvested: zod.number(),
+    children: zod
+      .array(zod.unknown())
+      .describe("Direct referrals sponsored by this member (unilevel)"),
+  }),
+  maxDepth: zod.number(),
+});
+
+/**
+ * @summary Admin - Get binary tree for any user
+ */
+export const AdminGetUserBinaryTreeParams = zod.object({
+  userId: zod.coerce.string(),
+});
+
+export const adminGetUserBinaryTreeQueryMaxDepthDefault = 5;
+export const adminGetUserBinaryTreeQueryMaxDepthMax = 8;
+
+export const AdminGetUserBinaryTreeQueryParams = zod.object({
+  maxDepth: zod.coerce
+    .number()
+    .min(1)
+    .max(adminGetUserBinaryTreeQueryMaxDepthMax)
+    .default(adminGetUserBinaryTreeQueryMaxDepthDefault),
+});
+
+export const AdminGetUserBinaryTreeResponse = zod.object({
+  root: zod.object({
+    id: zod.string(),
+    name: zod.string(),
+    binarySide: zod
+      .enum(["left", "right"])
+      .nullable()
+      .describe("Placement under parent (null for the root node — you)"),
+    leftTeam: zod
+      .array(zod.unknown())
+      .describe(
+        "All members placed directly on this node's left leg (newest last)",
+      ),
+    rightTeam: zod
+      .array(zod.unknown())
+      .describe(
+        "All members placed directly on this node's right leg (newest last)",
+      ),
+  }),
+  maxDepth: zod.number(),
+});
 
 /**
  * @summary Admin - Update user (wallet balance, status)
@@ -374,11 +1078,42 @@ export const AdminUpdateUserResponse = zod.object({
   totalEarned: zod.number(),
   activeInvestments: zod.number(),
   createdAt: zod.date(),
+  referralCode: zod
+    .string()
+    .nullable()
+    .describe("User's shareable referral code (uppercase), if assigned."),
+  directLeft: zod
+    .array(
+      zod.object({
+        id: zod.string(),
+        name: zod.string(),
+      }),
+    )
+    .describe(
+      "Users who joined directly on this member's left leg (by referrerId + binarySide).",
+    ),
+  directRight: zod
+    .array(
+      zod.object({
+        id: zod.string(),
+        name: zod.string(),
+      }),
+    )
+    .describe(
+      "Users who joined directly on this member's right leg (by referrerId + binarySide).",
+    ),
 });
 
 /**
  * @summary Admin - Get all plans
  */
+export const adminGetPlansResponseRoiPoolPercentMax = 100;
+
+export const adminGetPlansResponseLevelIncomeTiersItemLevelMax = 32;
+
+export const adminGetPlansResponseLevelIncomeTiersItemPercentMin = 0;
+export const adminGetPlansResponseLevelIncomeTiersItemPercentMax = 100;
+
 export const AdminGetPlansResponseItem = zod.object({
   id: zod.string(),
   name: zod.string(),
@@ -388,12 +1123,67 @@ export const AdminGetPlansResponseItem = zod.object({
   maxDays: zod.number(),
   isActive: zod.boolean(),
   description: zod.string().optional(),
+  directBonus: zod
+    .number()
+    .describe(
+      "Rupees paid to direct sponsor on referral's first investment (default 20).",
+    ),
+  binaryPairVolume: zod
+    .number()
+    .describe("BV required on each leg to form one binary pair (default 200)."),
+  binaryPairPayout: zod
+    .number()
+    .describe("Rupees paid per binary pair to upline (default 80)."),
+  roiPoolPercent: zod
+    .number()
+    .min(1)
+    .max(adminGetPlansResponseRoiPoolPercentMax)
+    .describe("Percent of plan dailyRoi credited each ROI day (default 100)."),
+  levelIncomeEnabled: zod
+    .boolean()
+    .describe(
+      "When true, downline daily ROI pays uplines per this plan's level-income schedule (or global default when tiers are omitted).",
+    ),
+  levelIncomeTiers: zod
+    .array(
+      zod.object({
+        level: zod
+          .number()
+          .min(1)
+          .max(adminGetPlansResponseLevelIncomeTiersItemLevelMax)
+          .describe("Generation from downline (1 = direct sponsor)."),
+        percent: zod
+          .number()
+          .min(adminGetPlansResponseLevelIncomeTiersItemPercentMin)
+          .max(adminGetPlansResponseLevelIncomeTiersItemPercentMax)
+          .describe(
+            "Percent of downline credited daily ROI paid at this level.",
+          ),
+      }),
+    )
+    .optional()
+    .describe(
+      "Per-plan level schedule. Levels with 0% are disabled and receive no payout.",
+    ),
+  planKind: zod
+    .enum(["mlm", "standalone"])
+    .optional()
+    .describe(
+      "Standalone = ROI only, no referral\/binary, no gift activation, no 2-referral withdrawal gate.",
+    ),
 });
 export const AdminGetPlansResponse = zod.array(AdminGetPlansResponseItem);
 
 /**
  * @summary Admin - Create a plan
  */
+export const adminCreatePlanBodyRoiPoolPercentMax = 100;
+
+export const adminCreatePlanBodyLevelIncomeTiersItemLevelMax = 32;
+
+export const adminCreatePlanBodyLevelIncomeTiersItemPercentMin = 0;
+export const adminCreatePlanBodyLevelIncomeTiersItemPercentMax = 100;
+
 export const AdminCreatePlanBody = zod.object({
   name: zod.string(),
   amount: zod.number(),
@@ -402,6 +1192,34 @@ export const AdminCreatePlanBody = zod.object({
   maxDays: zod.number(),
   isActive: zod.boolean().optional(),
   description: zod.string().optional(),
+  directBonus: zod.number().optional(),
+  binaryPairVolume: zod.number().optional(),
+  binaryPairPayout: zod.number().optional(),
+  roiPoolPercent: zod
+    .number()
+    .min(1)
+    .max(adminCreatePlanBodyRoiPoolPercentMax)
+    .optional(),
+  levelIncomeEnabled: zod.boolean().optional(),
+  levelIncomeTiers: zod
+    .array(
+      zod.object({
+        level: zod
+          .number()
+          .min(1)
+          .max(adminCreatePlanBodyLevelIncomeTiersItemLevelMax)
+          .describe("Generation from downline (1 = direct sponsor)."),
+        percent: zod
+          .number()
+          .min(adminCreatePlanBodyLevelIncomeTiersItemPercentMin)
+          .max(adminCreatePlanBodyLevelIncomeTiersItemPercentMax)
+          .describe(
+            "Percent of downline credited daily ROI paid at this level.",
+          ),
+      }),
+    )
+    .optional(),
+  planKind: zod.enum(["mlm", "standalone"]).optional(),
 });
 
 /**
@@ -411,6 +1229,13 @@ export const AdminUpdatePlanParams = zod.object({
   planId: zod.coerce.string(),
 });
 
+export const adminUpdatePlanBodyRoiPoolPercentMax = 100;
+
+export const adminUpdatePlanBodyLevelIncomeTiersItemLevelMax = 32;
+
+export const adminUpdatePlanBodyLevelIncomeTiersItemPercentMin = 0;
+export const adminUpdatePlanBodyLevelIncomeTiersItemPercentMax = 100;
+
 export const AdminUpdatePlanBody = zod.object({
   name: zod.string().optional(),
   amount: zod.number().optional(),
@@ -419,7 +1244,42 @@ export const AdminUpdatePlanBody = zod.object({
   maxDays: zod.number().optional(),
   isActive: zod.boolean().optional(),
   description: zod.string().optional(),
+  directBonus: zod.number().optional(),
+  binaryPairVolume: zod.number().optional(),
+  binaryPairPayout: zod.number().optional(),
+  roiPoolPercent: zod
+    .number()
+    .min(1)
+    .max(adminUpdatePlanBodyRoiPoolPercentMax)
+    .optional(),
+  levelIncomeEnabled: zod.boolean().optional(),
+  levelIncomeTiers: zod
+    .array(
+      zod.object({
+        level: zod
+          .number()
+          .min(1)
+          .max(adminUpdatePlanBodyLevelIncomeTiersItemLevelMax)
+          .describe("Generation from downline (1 = direct sponsor)."),
+        percent: zod
+          .number()
+          .min(adminUpdatePlanBodyLevelIncomeTiersItemPercentMin)
+          .max(adminUpdatePlanBodyLevelIncomeTiersItemPercentMax)
+          .describe(
+            "Percent of downline credited daily ROI paid at this level.",
+          ),
+      }),
+    )
+    .optional(),
+  planKind: zod.enum(["mlm", "standalone"]).optional(),
 });
+
+export const adminUpdatePlanResponseRoiPoolPercentMax = 100;
+
+export const adminUpdatePlanResponseLevelIncomeTiersItemLevelMax = 32;
+
+export const adminUpdatePlanResponseLevelIncomeTiersItemPercentMin = 0;
+export const adminUpdatePlanResponseLevelIncomeTiersItemPercentMax = 100;
 
 export const AdminUpdatePlanResponse = zod.object({
   id: zod.string(),
@@ -430,6 +1290,54 @@ export const AdminUpdatePlanResponse = zod.object({
   maxDays: zod.number(),
   isActive: zod.boolean(),
   description: zod.string().optional(),
+  directBonus: zod
+    .number()
+    .describe(
+      "Rupees paid to direct sponsor on referral's first investment (default 20).",
+    ),
+  binaryPairVolume: zod
+    .number()
+    .describe("BV required on each leg to form one binary pair (default 200)."),
+  binaryPairPayout: zod
+    .number()
+    .describe("Rupees paid per binary pair to upline (default 80)."),
+  roiPoolPercent: zod
+    .number()
+    .min(1)
+    .max(adminUpdatePlanResponseRoiPoolPercentMax)
+    .describe("Percent of plan dailyRoi credited each ROI day (default 100)."),
+  levelIncomeEnabled: zod
+    .boolean()
+    .describe(
+      "When true, downline daily ROI pays uplines per this plan's level-income schedule (or global default when tiers are omitted).",
+    ),
+  levelIncomeTiers: zod
+    .array(
+      zod.object({
+        level: zod
+          .number()
+          .min(1)
+          .max(adminUpdatePlanResponseLevelIncomeTiersItemLevelMax)
+          .describe("Generation from downline (1 = direct sponsor)."),
+        percent: zod
+          .number()
+          .min(adminUpdatePlanResponseLevelIncomeTiersItemPercentMin)
+          .max(adminUpdatePlanResponseLevelIncomeTiersItemPercentMax)
+          .describe(
+            "Percent of downline credited daily ROI paid at this level.",
+          ),
+      }),
+    )
+    .optional()
+    .describe(
+      "Per-plan level schedule. Levels with 0% are disabled and receive no payout.",
+    ),
+  planKind: zod
+    .enum(["mlm", "standalone"])
+    .optional()
+    .describe(
+      "Standalone = ROI only, no referral\/binary, no gift activation, no 2-referral withdrawal gate.",
+    ),
 });
 
 /**
@@ -515,6 +1423,8 @@ export const AdminGetInvestmentsQueryParams = zod.object({
     .default(adminGetInvestmentsQueryLimitDefault),
 });
 
+export const adminGetInvestmentsResponseItemsItemRoiPoolPercentMax = 100;
+
 export const AdminGetInvestmentsResponse = zod.object({
   items: zod.array(
     zod.object({
@@ -536,6 +1446,10 @@ export const AdminGetInvestmentsResponse = zod.object({
       status: zod.enum(["active", "completed", "manually_stopped"]),
       startDate: zod.date(),
       lastRoiUpdate: zod.date().nullish(),
+      roiPoolPercent: zod
+        .number()
+        .min(1)
+        .max(adminGetInvestmentsResponseItemsItemRoiPoolPercentMax),
     }),
   ),
   total: zod.number(),
@@ -566,6 +1480,8 @@ export const AdminPatchInvestmentBody = zod
   })
   .describe("At least one field should be provided");
 
+export const adminPatchInvestmentResponseRoiPoolPercentMax = 100;
+
 export const AdminPatchInvestmentResponse = zod.object({
   id: zod.string(),
   userId: zod.string(),
@@ -585,6 +1501,10 @@ export const AdminPatchInvestmentResponse = zod.object({
   status: zod.enum(["active", "completed", "manually_stopped"]),
   startDate: zod.date(),
   lastRoiUpdate: zod.date().nullish(),
+  roiPoolPercent: zod
+    .number()
+    .min(1)
+    .max(adminPatchInvestmentResponseRoiPoolPercentMax),
 });
 
 /**
@@ -605,7 +1525,15 @@ export const AdminGetIncomeHistoryResponse = zod.object({
       userId: zod.string(),
       investmentId: zod.string(),
       amount: zod.number(),
-      type: zod.enum(["ROI", "ADJUSTMENT", "WITHDRAWAL", "INVESTMENT"]),
+      type: zod.enum([
+        "ROI",
+        "ADJUSTMENT",
+        "WITHDRAWAL",
+        "INVESTMENT",
+        "REFERRAL_BONUS",
+        "BINARY_PAIR",
+        "LEVEL_INCOME",
+      ]),
       date: zod.date(),
       planAmount: zod.number(),
       dayNumber: zod.number(),
@@ -619,27 +1547,167 @@ export const AdminGetIncomeHistoryResponse = zod.object({
 });
 
 /**
- * @summary Admin - Get platform settings (withdrawal fee)
+ * @summary Admin - Get global level income schedule
  */
-export const AdminGetSettingsResponse = zod.object({
-  withdrawalFeePercent: zod.number(),
+export const adminGetLevelIncomeResponseLevelsItemLevelMax = 32;
+
+export const adminGetLevelIncomeResponseLevelsItemPercentMin = 0;
+export const adminGetLevelIncomeResponseLevelsItemPercentMax = 100;
+
+export const AdminGetLevelIncomeResponse = zod.object({
+  levels: zod.array(
+    zod.object({
+      level: zod
+        .number()
+        .min(1)
+        .max(adminGetLevelIncomeResponseLevelsItemLevelMax)
+        .describe("Generation from downline (1 = direct sponsor)."),
+      percent: zod
+        .number()
+        .min(adminGetLevelIncomeResponseLevelsItemPercentMin)
+        .max(adminGetLevelIncomeResponseLevelsItemPercentMax)
+        .describe("Percent of downline credited daily ROI paid at this level."),
+    }),
+  ),
+  maxLevels: zod.number().describe("Maximum tiers allowed (32)."),
+  defaultOnNewPlans: zod
+    .boolean()
+    .describe(
+      "When true, Create Plan enables level income by default (admin can turn off per plan).",
+    ),
 });
 
 /**
- * @summary Admin - Update withdrawal fee percentage
+ * @summary Admin - Replace global level income tiers (up to 32 levels)
+ */
+export const adminUpdateLevelIncomeBodyLevelsItemLevelMax = 32;
+
+export const adminUpdateLevelIncomeBodyLevelsItemPercentMin = 0;
+export const adminUpdateLevelIncomeBodyLevelsItemPercentMax = 100;
+
+export const adminUpdateLevelIncomeBodyLevelsMax = 32;
+
+export const AdminUpdateLevelIncomeBody = zod
+  .object({
+    levels: zod
+      .array(
+        zod.object({
+          level: zod
+            .number()
+            .min(1)
+            .max(adminUpdateLevelIncomeBodyLevelsItemLevelMax)
+            .describe("Generation from downline (1 = direct sponsor)."),
+          percent: zod
+            .number()
+            .min(adminUpdateLevelIncomeBodyLevelsItemPercentMin)
+            .max(adminUpdateLevelIncomeBodyLevelsItemPercentMax)
+            .describe(
+              "Percent of downline credited daily ROI paid at this level.",
+            ),
+        }),
+      )
+      .min(1)
+      .max(adminUpdateLevelIncomeBodyLevelsMax)
+      .optional(),
+    defaultOnNewPlans: zod.boolean().optional(),
+  })
+  .describe("Send levels and\/or defaultOnNewPlans (at least one).");
+
+export const adminUpdateLevelIncomeResponseLevelsItemLevelMax = 32;
+
+export const adminUpdateLevelIncomeResponseLevelsItemPercentMin = 0;
+export const adminUpdateLevelIncomeResponseLevelsItemPercentMax = 100;
+
+export const AdminUpdateLevelIncomeResponse = zod.object({
+  levels: zod.array(
+    zod.object({
+      level: zod
+        .number()
+        .min(1)
+        .max(adminUpdateLevelIncomeResponseLevelsItemLevelMax)
+        .describe("Generation from downline (1 = direct sponsor)."),
+      percent: zod
+        .number()
+        .min(adminUpdateLevelIncomeResponseLevelsItemPercentMin)
+        .max(adminUpdateLevelIncomeResponseLevelsItemPercentMax)
+        .describe("Percent of downline credited daily ROI paid at this level."),
+    }),
+  ),
+  maxLevels: zod.number().describe("Maximum tiers allowed (32)."),
+  defaultOnNewPlans: zod
+    .boolean()
+    .describe(
+      "When true, Create Plan enables level income by default (admin can turn off per plan).",
+    ),
+});
+
+/**
+ * @summary Admin - Get platform settings (fees)
+ */
+export const AdminGetSettingsResponse = zod.object({
+  withdrawalFeePercent: zod.number(),
+  peerTransferFeePercent: zod.number(),
+  binaryPlanEnabled: zod.boolean(),
+  directIncomeEnabled: zod
+    .boolean()
+    .describe(
+      "When false, direct referral bonus is disabled and hidden on admin plan forms.",
+    ),
+  standalonePlanCreationOnly: zod
+    .boolean()
+    .describe(
+      "When true, admin Create Plan only allows standalone (ROI-only) packages.",
+    ),
+  minWithdrawalAmount: zod
+    .number()
+    .describe("Minimum gross withdrawal request in ₹."),
+});
+
+/**
+ * @summary Admin - Update fee percentages (withdrawal and/or peer send / gift plan)
  */
 export const adminUpdateSettingsBodyWithdrawalFeePercentMin = 0;
 export const adminUpdateSettingsBodyWithdrawalFeePercentMax = 100;
 
-export const AdminUpdateSettingsBody = zod.object({
-  withdrawalFeePercent: zod
-    .number()
-    .min(adminUpdateSettingsBodyWithdrawalFeePercentMin)
-    .max(adminUpdateSettingsBodyWithdrawalFeePercentMax),
-});
+export const adminUpdateSettingsBodyPeerTransferFeePercentMin = 0;
+export const adminUpdateSettingsBodyPeerTransferFeePercentMax = 100;
+
+export const AdminUpdateSettingsBody = zod
+  .object({
+    withdrawalFeePercent: zod
+      .number()
+      .min(adminUpdateSettingsBodyWithdrawalFeePercentMin)
+      .max(adminUpdateSettingsBodyWithdrawalFeePercentMax)
+      .optional(),
+    peerTransferFeePercent: zod
+      .number()
+      .min(adminUpdateSettingsBodyPeerTransferFeePercentMin)
+      .max(adminUpdateSettingsBodyPeerTransferFeePercentMax)
+      .optional(),
+    binaryPlanEnabled: zod.boolean().optional(),
+    directIncomeEnabled: zod.boolean().optional(),
+    standalonePlanCreationOnly: zod.boolean().optional(),
+    minWithdrawalAmount: zod.number().min(1).optional(),
+  })
+  .describe("At least one property must be sent.");
 
 export const AdminUpdateSettingsResponse = zod.object({
   withdrawalFeePercent: zod.number(),
+  peerTransferFeePercent: zod.number(),
+  binaryPlanEnabled: zod.boolean(),
+  directIncomeEnabled: zod
+    .boolean()
+    .describe(
+      "When false, direct referral bonus is disabled and hidden on admin plan forms.",
+    ),
+  standalonePlanCreationOnly: zod
+    .boolean()
+    .describe(
+      "When true, admin Create Plan only allows standalone (ROI-only) packages.",
+    ),
+  minWithdrawalAmount: zod
+    .number()
+    .describe("Minimum gross withdrawal request in ₹."),
 });
 
 /**
@@ -648,6 +1716,11 @@ export const AdminUpdateSettingsResponse = zod.object({
 export const AdminGetDashboardResponse = zod.object({
   totalUsers: zod.number(),
   activeUsers: zod.number(),
+  dailyRegistrations: zod
+    .number()
+    .describe(
+      "Non-admin users whose account was created on the current calendar day (Asia\/Kolkata).",
+    ),
   totalInvested: zod.number(),
   totalEarned: zod.number(),
   activeInvestments: zod.number(),

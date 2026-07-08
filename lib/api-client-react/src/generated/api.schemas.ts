@@ -17,6 +17,25 @@ export interface MessageResponse {
   message: string;
 }
 
+export interface ReferralLookupResponse {
+  valid: boolean;
+  /** Sponsor full name when valid is true */
+  sponsorName?: string;
+  /** Reason when valid is false */
+  error?: string;
+}
+
+/**
+ * Required when binary plan is enabled; join as sponsor's immediate left or right leg.
+ */
+export type RegisterRequestBinaryPreferredSide =
+  (typeof RegisterRequestBinaryPreferredSide)[keyof typeof RegisterRequestBinaryPreferredSide];
+
+export const RegisterRequestBinaryPreferredSide = {
+  left: "left",
+  right: "right",
+} as const;
+
 export interface RegisterRequest {
   name: string;
   email: string;
@@ -29,6 +48,14 @@ export interface RegisterRequest {
   confirmPassword: string;
   /** Mobile number; digits only are stored after normalization (10–15 digits). */
   phone: string;
+  /**
+   * Sponsor referral code (case-insensitive). Must match an existing user; validate with GET /auth/referral-lookup before submit.
+   * @minLength 2
+   * @maxLength 32
+   */
+  referralCode: string;
+  /** Required when binary plan is enabled; join as sponsor's immediate left or right leg. */
+  binaryPreferredSide?: RegisterRequestBinaryPreferredSide;
 }
 
 export interface LoginRequest {
@@ -52,11 +79,26 @@ export interface User {
   walletBalance: number;
   isActive: boolean;
   createdAt: string;
+  /** Uppercase shareable code for referral signup links. */
+  referralCode: string | null;
+  /** Count of direct referrals who activated at least one investment (withdrawal gate). */
+  qualifiedDirectReferrals: number;
+  /** Direct sponsor user id when joined with a referral code. */
+  referrerId: string | null;
+  /** Display name of direct sponsor (upline), when referred. */
+  referrerName: string | null;
+  /** Email of direct sponsor (upline), when referred. */
+  referrerEmail: string | null;
 }
 
 export interface AuthResponse {
   user: User;
   token: string;
+}
+
+export interface AdminDirectMember {
+  id: string;
+  name: string;
 }
 
 export type AdminUserRole = (typeof AdminUserRole)[keyof typeof AdminUserRole];
@@ -78,6 +120,37 @@ export interface AdminUser {
   totalEarned: number;
   activeInvestments: number;
   createdAt: string;
+  /** User's shareable referral code (uppercase), if assigned. */
+  referralCode: string | null;
+  /** Users who joined directly on this member's left leg (by referrerId + binarySide). */
+  directLeft: AdminDirectMember[];
+  /** Users who joined directly on this member's right leg (by referrerId + binarySide). */
+  directRight: AdminDirectMember[];
+}
+
+/**
+ * Standalone = ROI only, no referral/binary, no gift activation, no 2-referral withdrawal gate.
+ */
+export type PlanPlanKind = (typeof PlanPlanKind)[keyof typeof PlanPlanKind];
+
+export const PlanPlanKind = {
+  mlm: "mlm",
+  standalone: "standalone",
+} as const;
+
+export interface LevelIncomeTier {
+  /**
+   * Generation from downline (1 = direct sponsor).
+   * @minimum 1
+   * @maximum 32
+   */
+  level: number;
+  /**
+   * Percent of downline credited daily ROI paid at this level.
+   * @minimum 0
+   * @maximum 100
+   */
+  percent: number;
 }
 
 export interface Plan {
@@ -89,7 +162,33 @@ export interface Plan {
   maxDays: number;
   isActive: boolean;
   description?: string;
+  /** Rupees paid to direct sponsor on referral's first investment (default 20). */
+  directBonus: number;
+  /** BV required on each leg to form one binary pair (default 200). */
+  binaryPairVolume: number;
+  /** Rupees paid per binary pair to upline (default 80). */
+  binaryPairPayout: number;
+  /**
+   * Percent of plan dailyRoi credited each ROI day (default 100).
+   * @minimum 1
+   * @maximum 100
+   */
+  roiPoolPercent: number;
+  /** When true, downline daily ROI pays uplines per this plan's level-income schedule (or global default when tiers are omitted). */
+  levelIncomeEnabled: boolean;
+  /** Per-plan level schedule. Levels with 0% are disabled and receive no payout. */
+  levelIncomeTiers?: LevelIncomeTier[];
+  /** Standalone = ROI only, no referral/binary, no gift activation, no 2-referral withdrawal gate. */
+  planKind?: PlanPlanKind;
 }
+
+export type CreatePlanRequestPlanKind =
+  (typeof CreatePlanRequestPlanKind)[keyof typeof CreatePlanRequestPlanKind];
+
+export const CreatePlanRequestPlanKind = {
+  mlm: "mlm",
+  standalone: "standalone",
+} as const;
 
 export interface CreatePlanRequest {
   name: string;
@@ -99,7 +198,26 @@ export interface CreatePlanRequest {
   maxDays: number;
   isActive?: boolean;
   description?: string;
+  directBonus?: number;
+  binaryPairVolume?: number;
+  binaryPairPayout?: number;
+  /**
+   * @minimum 1
+   * @maximum 100
+   */
+  roiPoolPercent?: number;
+  levelIncomeEnabled?: boolean;
+  levelIncomeTiers?: LevelIncomeTier[];
+  planKind?: CreatePlanRequestPlanKind;
 }
+
+export type UpdatePlanRequestPlanKind =
+  (typeof UpdatePlanRequestPlanKind)[keyof typeof UpdatePlanRequestPlanKind];
+
+export const UpdatePlanRequestPlanKind = {
+  mlm: "mlm",
+  standalone: "standalone",
+} as const;
 
 export interface UpdatePlanRequest {
   name?: string;
@@ -109,6 +227,17 @@ export interface UpdatePlanRequest {
   maxDays?: number;
   isActive?: boolean;
   description?: string;
+  directBonus?: number;
+  binaryPairVolume?: number;
+  binaryPairPayout?: number;
+  /**
+   * @minimum 1
+   * @maximum 100
+   */
+  roiPoolPercent?: number;
+  levelIncomeEnabled?: boolean;
+  levelIncomeTiers?: LevelIncomeTier[];
+  planKind?: UpdatePlanRequestPlanKind;
 }
 
 export type InvestmentManualStatus =
@@ -144,6 +273,12 @@ export interface Investment {
   status: InvestmentStatus;
   startDate: string;
   lastRoiUpdate?: string | null;
+  /**
+   * Snapshot from plan at activation; percent of dailyRoi paid each ROI day.
+   * @minimum 1
+   * @maximum 100
+   */
+  roiPoolPercent: number;
 }
 
 export type AdminInvestmentManualStatus =
@@ -182,6 +317,11 @@ export interface AdminInvestment {
   status: AdminInvestmentStatus;
   startDate: string;
   lastRoiUpdate?: string | null;
+  /**
+   * @minimum 1
+   * @maximum 100
+   */
+  roiPoolPercent: number;
 }
 
 export interface AdminInvestmentListPage {
@@ -221,6 +361,9 @@ export const IncomeHistoryEntryType = {
   ADJUSTMENT: "ADJUSTMENT",
   WITHDRAWAL: "WITHDRAWAL",
   INVESTMENT: "INVESTMENT",
+  REFERRAL_BONUS: "REFERRAL_BONUS",
+  BINARY_PAIR: "BINARY_PAIR",
+  LEVEL_INCOME: "LEVEL_INCOME",
 } as const;
 
 export interface IncomeHistoryEntry {
@@ -245,23 +388,148 @@ export interface IncomeHistoryPage {
 
 export interface CreateInvestmentRequest {
   planId: string;
+  /** Optional. When set to another member's user id, that member receives the investment and the plan cost is debited from your wallet (sponsored activation). Omit or set to your own id to activate for yourself. */
+  beneficiaryUserId?: string;
+}
+
+/**
+ * Exactly one destination field must be provided.
+ */
+export interface WalletTransferRequest {
+  /** @minimum 1 */
+  amount: number;
+  toUserId?: string;
+  toEmail?: string;
+  /**
+   * @minLength 2
+   * @maxLength 32
+   */
+  toReferralCode?: string;
+}
+
+export interface WalletTransferResponse {
+  /** Your wallet balance after the transfer */
+  walletBalance: number;
+  recipientId: string;
+  recipientName: string;
+  /** Platform fee percent applied to this transfer (0–100) */
+  feePercent: number;
+  /** Rupees retained by the platform from the gross amount sent */
+  feeAmount: number;
+  /** Net amount credited to the recipient wallet */
+  recipientReceived: number;
+}
+
+export interface ResolvedMember {
+  id: string;
+  name: string;
+  referralCode: string | null;
 }
 
 export interface WithdrawalFeeSettings {
-  /** Percent deducted from requested gross (0–100). Default 10 when unset in database. */
+  /** Effective percent for this member (custom override or global default). */
   withdrawalFeePercent: number;
+  /** Site-wide default from admin Settings. */
+  globalWithdrawalFeePercent?: number;
+  /** Per-member override when set; null means use global default. */
+  customWithdrawalFeePercent?: number | null;
+  /** Percent applied to peer wallet sends and gift-plan activations (0–100). Default 0 when unset. */
+  peerTransferFeePercent: number;
+  /** Minimum gross withdrawal request in ₹. */
+  minWithdrawalAmount: number;
 }
 
-export interface AdminSettings {
-  withdrawalFeePercent: number;
+export interface AdminUserWithdrawalFee {
+  userId: string;
+  name: string;
+  email: string;
+  /** Admin-set override; null when using global default. */
+  customWithdrawalFeePercent?: number | null;
+  /** Fee applied on next withdrawal for this member. */
+  effectiveWithdrawalFeePercent: number;
+  /** Current site-wide default (Settings). */
+  globalWithdrawalFeePercent: number;
 }
 
-export interface AdminUpdateSettingsRequest {
+export interface AdminWithdrawalFeeRow {
+  userId: string;
+  name: string;
+  email: string;
+  customWithdrawalFeePercent?: number | null;
+  effectiveWithdrawalFeePercent: number;
+}
+
+export interface AdminWithdrawalFeeList {
+  globalWithdrawalFeePercent: number;
+  users: AdminWithdrawalFeeRow[];
+}
+
+export interface AdminSetUserWithdrawalFeeRequest {
   /**
    * @minimum 0
    * @maximum 100
    */
   withdrawalFeePercent: number;
+}
+
+export interface PlatformFeatures {
+  /** When false, binary UI and binary pair payouts are hidden/disabled site-wide. */
+  binaryPlanEnabled: boolean;
+  /** When false, direct referral bonus payouts and per-plan direct bonus fields are hidden. */
+  directIncomeEnabled: boolean;
+}
+
+export interface LevelIncomeConfig {
+  levels: LevelIncomeTier[];
+  /** Maximum tiers allowed (32). */
+  maxLevels: number;
+  /** When true, Create Plan enables level income by default (admin can turn off per plan). */
+  defaultOnNewPlans: boolean;
+}
+
+/**
+ * Send levels and/or defaultOnNewPlans (at least one).
+ */
+export interface AdminUpdateLevelIncomeRequest {
+  /**
+   * @minItems 1
+   * @maxItems 32
+   */
+  levels?: LevelIncomeTier[];
+  defaultOnNewPlans?: boolean;
+}
+
+export interface AdminSettings {
+  withdrawalFeePercent: number;
+  peerTransferFeePercent: number;
+  binaryPlanEnabled: boolean;
+  /** When false, direct referral bonus is disabled and hidden on admin plan forms. */
+  directIncomeEnabled: boolean;
+  /** When true, admin Create Plan only allows standalone (ROI-only) packages. */
+  standalonePlanCreationOnly: boolean;
+  /** Minimum gross withdrawal request in ₹. */
+  minWithdrawalAmount: number;
+}
+
+/**
+ * At least one property must be sent.
+ */
+export interface AdminUpdateSettingsRequest {
+  /**
+   * @minimum 0
+   * @maximum 100
+   */
+  withdrawalFeePercent?: number;
+  /**
+   * @minimum 0
+   * @maximum 100
+   */
+  peerTransferFeePercent?: number;
+  binaryPlanEnabled?: boolean;
+  directIncomeEnabled?: boolean;
+  standalonePlanCreationOnly?: boolean;
+  /** @minimum 1 */
+  minWithdrawalAmount?: number;
 }
 
 export type WithdrawalStatus =
@@ -285,6 +553,40 @@ export interface Withdrawal {
   bankDetails?: string | null;
   createdAt: string;
   updatedAt?: string | null;
+  /** Present when withdrawal succeeded but profile could not store bank details (e.g. saved-account limit) */
+  bankAccountSaveWarning?: string | null;
+}
+
+export interface SavedBankAccount {
+  id: string;
+  label?: string | null;
+  bankName: string;
+  ifscCode: string;
+  accountNumber: string;
+  accountHolderName: string;
+  createdAt: string;
+}
+
+export interface CreateSavedBankAccountRequest {
+  /** @minLength 2 */
+  bankName: string;
+  ifscCode: string;
+  accountNumber: string;
+  /** @minLength 2 */
+  accountHolderName: string;
+  /** @maxLength 80 */
+  label?: string;
+}
+
+export interface UpdateSavedBankAccountRequest {
+  /** @minLength 2 */
+  bankName?: string;
+  ifscCode?: string;
+  accountNumber?: string;
+  /** @minLength 2 */
+  accountHolderName?: string;
+  /** @maxLength 80 */
+  label?: string | null;
 }
 
 export type AdminWithdrawalStatus =
@@ -312,9 +614,20 @@ export interface AdminWithdrawal {
 }
 
 export interface CreateWithdrawalRequest {
-  /** @minimum 500 */
+  /** @minimum 100 */
   amount: number;
+  /** Legacy multiline bank text (alternative to structured fields or bankAccountId) */
   bankDetails?: string;
+  /** Use a profile-saved bank account */
+  bankAccountId?: string;
+  bankName?: string;
+  ifscCode?: string;
+  accountNumber?: string;
+  accountHolderName?: string;
+  /** When submitting structured fields, defaults true — save to profile after success unless false */
+  saveBankAccount?: boolean;
+  /** @maxLength 80 */
+  bankAccountLabel?: string;
 }
 
 export type AdminUpdateWithdrawalRequestStatus =
@@ -335,6 +648,75 @@ export interface AdminUpdateUserRequest {
   name?: string;
 }
 
+export type DirectReferralRowBinarySide =
+  | (typeof DirectReferralRowBinarySide)[keyof typeof DirectReferralRowBinarySide]
+  | null;
+
+export const DirectReferralRowBinarySide = {
+  left: "left",
+  right: "right",
+} as const;
+
+export interface DirectReferralRow {
+  id: string;
+  name: string;
+  email: string;
+  referralCode: string | null;
+  binarySide: DirectReferralRowBinarySide;
+  createdAt: string;
+  hasActivatedInvestment: boolean;
+  activeInvestmentsCount: number;
+  totalInvested: number;
+}
+
+export interface DirectLevelResponse {
+  directs: DirectReferralRow[];
+}
+
+/**
+ * Placement under parent (null for the root node — you)
+ */
+export type BinaryTreeNodeBinarySide =
+  | (typeof BinaryTreeNodeBinarySide)[keyof typeof BinaryTreeNodeBinarySide]
+  | null;
+
+export const BinaryTreeNodeBinarySide = {
+  left: "left",
+  right: "right",
+} as const;
+
+export interface BinaryTreeNode {
+  id: string;
+  name: string;
+  /** Placement under parent (null for the root node — you) */
+  binarySide: BinaryTreeNodeBinarySide;
+  /** All members placed directly on this node's left leg (newest last) */
+  leftTeam: BinaryTreeNode[];
+  /** All members placed directly on this node's right leg (newest last) */
+  rightTeam: BinaryTreeNode[];
+}
+
+export interface BinaryTreeResponse {
+  root: BinaryTreeNode;
+  maxDepth: number;
+}
+
+export interface SponsorTreeNode {
+  id: string;
+  name: string;
+  referralCode: string | null;
+  hasActivatedInvestment: boolean;
+  activeInvestmentsCount: number;
+  totalInvested: number;
+  /** Direct referrals sponsored by this member (unilevel) */
+  children: SponsorTreeNode[];
+}
+
+export interface SponsorTreeResponse {
+  root: SponsorTreeNode;
+  maxDepth: number;
+}
+
 export interface DashboardStats {
   totalInvested: number;
   totalEarned: number;
@@ -347,6 +729,8 @@ export interface DashboardStats {
 export interface AdminDashboardStats {
   totalUsers: number;
   activeUsers: number;
+  /** Non-admin users whose account was created on the current calendar day (Asia/Kolkata). */
+  dailyRegistrations: number;
   totalInvested: number;
   totalEarned: number;
   activeInvestments: number;
@@ -357,16 +741,57 @@ export interface AdminDashboardStats {
   totalWithdrawals: number;
 }
 
+/**
+ * legacy_qr = static uploaded QR; dynamic_upi = amount-specific UPI link
+ */
+export type PaymentSettingsDepositMethod =
+  (typeof PaymentSettingsDepositMethod)[keyof typeof PaymentSettingsDepositMethod];
+
+export const PaymentSettingsDepositMethod = {
+  legacy_qr: "legacy_qr",
+  dynamic_upi: "dynamic_upi",
+} as const;
+
 export interface PaymentSettings {
   qrCodeImageUrl: string;
   isPaymentEnabled: boolean;
+  /** legacy_qr = static uploaded QR; dynamic_upi = amount-specific UPI link */
+  depositMethod: PaymentSettingsDepositMethod;
+  /** UPI VPAs for dynamic deposits (one chosen at random per payment) */
+  upiIds: string[];
+  /** Payee name shown in UPI apps */
+  payeeName: string;
   updatedAt?: string | null;
 }
+
+export type AdminUpdatePaymentSettingsRequestDepositMethod =
+  (typeof AdminUpdatePaymentSettingsRequestDepositMethod)[keyof typeof AdminUpdatePaymentSettingsRequestDepositMethod];
+
+export const AdminUpdatePaymentSettingsRequestDepositMethod = {
+  legacy_qr: "legacy_qr",
+  dynamic_upi: "dynamic_upi",
+} as const;
 
 export interface AdminUpdatePaymentSettingsRequest {
   /** Public URL after upload; may be empty string to clear */
   qrCodeImageUrl?: string;
   isPaymentEnabled?: boolean;
+  depositMethod?: AdminUpdatePaymentSettingsRequestDepositMethod;
+  upiIds?: string[];
+  payeeName?: string;
+}
+
+export interface GenerateDepositPaymentRequest {
+  /** @minimum 1 */
+  amount: number;
+}
+
+export interface GenerateDepositPaymentResponse {
+  amount: number;
+  selectedUpiId: string;
+  payeeName: string;
+  /** UPI URI for QR and Pay Now */
+  upiDeepLink: string;
 }
 
 export type DepositStatus = (typeof DepositStatus)[keyof typeof DepositStatus];
@@ -383,6 +808,7 @@ export interface Deposit {
   transactionId: string;
   screenshotUrl: string;
   note?: string | null;
+  payeeUpiId?: string | null;
   status: DepositStatus;
   createdAt: string;
   updatedAt?: string | null;
@@ -411,6 +837,7 @@ export interface AdminDeposit {
   transactionId: string;
   screenshotUrl: string;
   note?: string | null;
+  payeeUpiId?: string | null;
   status: AdminDepositStatus;
   createdAt: string;
   updatedAt?: string | null;
@@ -432,6 +859,24 @@ export interface UpdateProfileRequest {
   name?: string;
 }
 
+export interface ChangePasswordRequest {
+  /** @minLength 1 */
+  currentPassword: string;
+  /** @minLength 6 */
+  newPassword: string;
+  /**
+   * Must match newPassword
+   * @minLength 6
+   */
+  confirmNewPassword: string;
+}
+
+export interface ChangePasswordResponse {
+  message: string;
+  /** Fresh Firebase ID token after password change */
+  token: string;
+}
+
 export interface CronResult {
   message: string;
   processedCount: number;
@@ -439,9 +884,60 @@ export interface CronResult {
   deactivatedCount: number;
 }
 
+export type GetReferralLookupParams = {
+  /**
+   * Sponsor referral code (case-insensitive)
+   * @minLength 2
+   * @maxLength 32
+   */
+  code: string;
+};
+
+export type ResolveMemberForTransferParams = {
+  userId?: string;
+  /**
+   * Member email (trimmed; lookup is case-insensitive via Firebase Auth when needed)
+   */
+  email?: string;
+  referralCode?: string;
+};
+
 export type GetMyIncomeHistoryParams = {
   limit?: number;
   cursor?: string;
+};
+
+export type GetMySponsorTreeParams = {
+  /**
+   * @minimum 1
+   * @maximum 8
+   */
+  maxDepth?: number;
+};
+
+export type GetMyBinaryTreeParams = {
+  /**
+   * Maximum depth below you to load (1 = only your immediate binary children)
+   * @minimum 1
+   * @maximum 8
+   */
+  maxDepth?: number;
+};
+
+export type AdminGetUserSponsorTreeParams = {
+  /**
+   * @minimum 1
+   * @maximum 8
+   */
+  maxDepth?: number;
+};
+
+export type AdminGetUserBinaryTreeParams = {
+  /**
+   * @minimum 1
+   * @maximum 8
+   */
+  maxDepth?: number;
 };
 
 export type AdminGetInvestmentsParams = {

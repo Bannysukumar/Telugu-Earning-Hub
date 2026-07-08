@@ -6,10 +6,23 @@
  * OpenAPI spec version: 1.0.0
  */
 
+/**
+ * At least one property must be sent.
+ */
 export interface AdminUpdateSettingsRequest {
   /**
    * @minimum 0
    * @maximum 100
    */
-  withdrawalFeePercent: number;
+  withdrawalFeePercent?: number;
+  /**
+   * @minimum 0
+   * @maximum 100
+   */
+  peerTransferFeePercent?: number;
+  binaryPlanEnabled?: boolean;
+  directIncomeEnabled?: boolean;
+  standalonePlanCreationOnly?: boolean;
+  /** @minimum 1 */
+  minWithdrawalAmount?: number;
 }
