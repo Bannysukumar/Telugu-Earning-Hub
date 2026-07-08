@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { usePlatformFeatures } from "@/hooks/use-platform-features";
 import {
   activateGrowthPlan,
   getGrowthDashboard,
@@ -25,6 +26,7 @@ const SMART_GROWTH_PLAN_ID = "__smart_growth__";
 
 export default function Plans() {
   const { user } = useAuth();
+  const { binaryPlanEnabled } = usePlatformFeatures();
   const { data: plans, isLoading } = useGetPlans();
   const { data: myInvestments } = useGetMyInvestments({
     query: { enabled: Boolean(user), queryKey: getGetMyInvestmentsQueryKey() },
@@ -135,14 +137,16 @@ export default function Plans() {
           <h1 className="text-4xl md:text-5xl font-display font-bold mb-4">Investment Plans</h1>
           <p className="text-muted-foreground text-lg max-w-2xl mx-auto mb-6">
             Fund your wallet, then activate a package. You can activate the same plan again anytime — even while another
-            position on that plan is still active. Each activation is a separate investment with its own 2× cap. Smart
-            Binary rules are summarized on the dedicated plan page.
+            position on that plan is still active. Each activation is a separate investment with its own 2× cap
+            {binaryPlanEnabled ? ". Smart Binary rules are summarized on the dedicated plan page." : "."}
           </p>
-          <Link href="/binary-plan">
-            <Button variant="outline" className="gap-2">
-              Read Smart Binary MLM plan
-            </Button>
-          </Link>
+          {binaryPlanEnabled ? (
+            <Link href="/binary-plan">
+              <Button variant="outline" className="gap-2">
+                Read Smart Binary MLM plan
+              </Button>
+            </Link>
+          ) : null}
         </div>
 
         {isLoading ? (
