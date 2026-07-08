@@ -178,13 +178,17 @@ export async function runGrowthPlanDailyJob(now: Date = new Date()): Promise<Gro
       });
     }
 
+    const roiBefore = Math.max(0, gp.currentPlanIncome - gp.directIncome);
+    const dayNumber =
+      settings.dailyRoi > 0 ? Math.max(1, Math.floor(roiBefore / settings.dailyRoi) + 1) : 1;
+
     await db.collection("incomeHistory").add({
       userId: doc.id,
       investmentId: "__growth_plan__",
       amount: payout,
       type: "GROWTH_ROI",
       planAmount: gp.planAmount,
-      dayNumber: Math.floor((updatedGp.currentPlanIncome - updatedGp.directIncome) / settings.dailyRoi),
+      dayNumber,
       note: `${settings.planName} daily ROI`,
       date: ts,
     });

@@ -62,4 +62,30 @@ describe("simulateBinaryPayouts (direct binary only)", () => {
     assert.equal(finalBv.get(parent)?.L, 200);
     assert.equal(finalBv.get(parent)?.R, 0);
   });
+
+  it("does not consume BV beyond what cap headroom can pay", () => {
+    const sponsor = "A";
+    const chain = [{ ancestorId: sponsor, side: "right" as const }];
+    // Already has one left unit waiting; activating right would form 1 pair (₹80).
+    const bvStart = new Map([[sponsor, { L: 200, R: 0 }]]);
+    // Cap only allows ₹40 — must keep leftover BV rather than burning a full pair.
+    const headroom = new Map([[sponsor, 40]]);
+
+    const { binaryPayoutByUser, finalBv } = simulateBinaryPayouts(chain, 200, bvStart, headroom, 200, 80);
+    assert.equal(binaryPayoutByUser.get(sponsor) ?? 0, 0);
+    assert.equal(finalBv.get(sponsor)?.L, 200);
+    assert.equal(finalBv.get(sponsor)?.R, 200);
+  });
+
+  it("does not consume BV when pairPayout is 0", () => {
+    const sponsor = "A";
+    const chain = [{ ancestorId: sponsor, side: "right" as const }];
+    const bvStart = new Map([[sponsor, { L: 200, R: 0 }]]);
+    const headroom = new Map([[sponsor, 10_000]]);
+
+    const { binaryPayoutByUser, finalBv } = simulateBinaryPayouts(chain, 200, bvStart, headroom, 200, 0);
+    assert.equal(binaryPayoutByUser.get(sponsor) ?? 0, 0);
+    assert.equal(finalBv.get(sponsor)?.L, 200);
+    assert.equal(finalBv.get(sponsor)?.R, 200);
+  });
 });

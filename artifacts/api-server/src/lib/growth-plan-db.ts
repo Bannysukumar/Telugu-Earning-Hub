@@ -440,11 +440,14 @@ export async function activateGrowthPlan(
         const sponsorGp = normalizeGrowthPlanState(sponsor.growthPlan, settings);
         let sponsorWallet = Number(sponsor.walletBalance ?? 0);
         let updatedSponsorGp = sponsorGp;
+        let historyAmount = 0;
         if (sponsorGp.planStatus === "active") {
           updatedSponsorGp = creditGrowthIncome(sponsorGp, settings.directBonus, "direct");
           const credited = updatedSponsorGp.directIncome - sponsorGp.directIncome;
           sponsorWallet += credited;
+          historyAmount = credited;
         } else {
+          historyAmount = settings.directBonus;
           sponsorWallet += settings.directBonus;
           updatedSponsorGp = {
             ...sponsorGp,
@@ -458,12 +461,12 @@ export async function activateGrowthPlan(
           growthPlan: updatedSponsorGp,
           updatedAt: FieldValue.serverTimestamp(),
         });
-        if (updatedSponsorGp.directIncome > sponsorGp.directIncome || sponsorGp.planStatus !== "active") {
+        if (historyAmount > 0) {
           const bonusRef = db.collection("incomeHistory").doc();
           tx.set(bonusRef, {
             userId: user.referredBy,
             investmentId: GROWTH_INCOME_CYCLE_ID,
-            amount: settings.directBonus,
+            amount: historyAmount,
             type: "GROWTH_DIRECT",
             planAmount: settings.planAmount,
             dayNumber: 0,

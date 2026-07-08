@@ -16,6 +16,7 @@ import {
   isInvestmentTermComplete,
   patchAfterEarningsCredit,
 } from "./investment-cap.js";
+import { istDateKey } from "./growth-plan-db.js";
 
 export function isIstWeekend(date: Date): boolean {
   const weekday = new Intl.DateTimeFormat("en-US", {
@@ -23,6 +24,11 @@ export function isIstWeekend(date: Date): boolean {
     timeZone: "Asia/Kolkata",
   }).format(date);
   return weekday === "Sat" || weekday === "Sun";
+}
+
+function isSameIstDay(ts: Timestamp | null | undefined, dayKey: string): boolean {
+  if (!ts) return false;
+  return istDateKey(ts.toDate()) === dayKey;
 }
 
 export type RoiJobResult = {
@@ -75,6 +81,7 @@ export async function runDailyRoiJob(now: Date = new Date()): Promise<RoiJobResu
   let processedCount = 0;
   let deactivatedCount = 0;
   const ts = Timestamp.now();
+  const todayKey = istDateKey(now);
 
   for (const snapshotRow of candidates) {
     const inv = await getInvestment(snapshotRow.id);
@@ -85,6 +92,11 @@ export async function runDailyRoiJob(now: Date = new Date()): Promise<RoiJobResu
         await deactivateForSystem(inv.id, inv, ts);
         deactivatedCount++;
       }
+      continue;
+    }
+
+    // Idempotent: skip if this investment already received ROI today (IST).
+    if (isSameIstDay(inv.lastRoiUpdate, todayKey)) {
       continue;
     }
 

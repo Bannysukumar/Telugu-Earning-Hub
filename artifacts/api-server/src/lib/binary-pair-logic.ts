@@ -39,13 +39,16 @@ export function simulateBinaryPayouts(
     if (step.side === "left") st.L += M;
     else st.R += M;
 
-    const pairs = Math.min(Math.floor(st.L / unit), Math.floor(st.R / unit));
-    let pay = pairs * pairPayout;
+    const pairsPossible = Math.min(Math.floor(st.L / unit), Math.floor(st.R / unit));
+    const capLeft = remainingCap.get(step.ancestorId) ?? 0;
+    // Only consume BV for pairs we can actually pay (cap + payout > 0).
+    const pairsByCap =
+      pairPayout > 0 ? Math.min(pairsPossible, Math.floor(capLeft / pairPayout)) : 0;
+    const pairs = Math.max(0, pairsByCap);
+    const pay = pairs * pairPayout;
     st.L -= pairs * unit;
     st.R -= pairs * unit;
 
-    const capLeft = remainingCap.get(step.ancestorId) ?? 0;
-    pay = Math.min(pay, capLeft);
     if (pay > 0) {
       remainingCap.set(step.ancestorId, capLeft - pay);
       binaryPayoutByUser.set(step.ancestorId, (binaryPayoutByUser.get(step.ancestorId) ?? 0) + pay);
