@@ -25,6 +25,7 @@ export default function AdminSettings() {
   const { mutate: savePay, isPending: paySaving } = useAdminUpdatePaymentSettings();
   const queryClient = useQueryClient();
   const [percent, setPercent] = useState("10");
+  const [minWithdrawal, setMinWithdrawal] = useState("500");
   const [peerPercent, setPeerPercent] = useState("0");
   const [payEnabled, setPayEnabled] = useState(false);
   const [depositMethod, setDepositMethod] = useState<PaymentSettingsDepositMethod>("dynamic_upi");
@@ -39,6 +40,12 @@ export default function AdminSettings() {
       setPercent(String(data.withdrawalFeePercent));
     }
   }, [data?.withdrawalFeePercent]);
+
+  useEffect(() => {
+    if (data?.minWithdrawalAmount != null) {
+      setMinWithdrawal(String(data.minWithdrawalAmount));
+    }
+  }, [data?.minWithdrawalAmount]);
 
   useEffect(() => {
     if (data?.peerTransferFeePercent != null) {
@@ -67,11 +74,16 @@ export default function AdminSettings() {
       toast.error("Enter a percentage between 0 and 100.");
       return;
     }
+    const min = Number(minWithdrawal);
+    if (!Number.isFinite(min) || min < 1 || !Number.isInteger(min)) {
+      toast.error("Enter a valid minimum withdrawal amount.");
+      return;
+    }
     save(
-      { data: { withdrawalFeePercent: n } },
+      { data: { withdrawalFeePercent: n, minWithdrawalAmount: min } },
       {
         onSuccess: () => {
-          toast.success("Withdrawal fee updated.");
+          toast.success("Withdrawal settings updated.");
           void queryClient.invalidateQueries({ queryKey: getAdminGetSettingsQueryKey() });
         },
         onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Save failed"),
@@ -288,6 +300,18 @@ export default function AdminSettings() {
                     onChange={(e) => setPercent(e.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">Default when unset in database: 10%.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="min-withdrawal">Minimum withdrawal (₹)</Label>
+                  <Input
+                    id="min-withdrawal"
+                    type="number"
+                    min={1}
+                    step="1"
+                    value={minWithdrawal}
+                    onChange={(e) => setMinWithdrawal(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">Applies to withdrawals, including Smart Growth checks.</p>
                 </div>
                 <Button type="button" onClick={onSave} isLoading={isPending} className="w-full sm:w-auto">
                   Save settings
