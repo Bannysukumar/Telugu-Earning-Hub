@@ -16,6 +16,7 @@ import {
   ScrollText,
   Settings,
   Banknote,
+  Sparkles,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/core";
@@ -29,6 +30,7 @@ export function AppLayout({ children, isAdmin = false }: { children: React.React
 
   const userRoutes = [
     { name: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
+    { name: "Smart Growth ₹200", path: "/smart-growth", icon: Sparkles },
     { name: "My Investments", path: "/investments", icon: Activity },
     { name: "Income History", path: "/income-history", icon: History },
     { name: "Withdraw Funds", path: "/withdraw", icon: ArrowRightLeft },
@@ -40,6 +42,7 @@ export function AppLayout({ children, isAdmin = false }: { children: React.React
     { name: "Overview", path: "/admin/dashboard", icon: LayoutDashboard },
     { name: "Manage Users", path: "/admin/users", icon: Users },
     { name: "Investment Plans", path: "/admin/plans", icon: Layers },
+    { name: "Smart Growth Plan", path: "/admin/growth-plan", icon: Sparkles },
     { name: "All Investments", path: "/admin/investments", icon: Activity },
     { name: "Income Logs", path: "/admin/income-logs", icon: ScrollText },
     { name: "Withdrawal Requests", path: "/admin/withdrawals", icon: ArrowRightLeft },

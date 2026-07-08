@@ -6,7 +6,9 @@ import investmentsRouter from "./investments.js";
 import withdrawalsRouter from "./withdrawals.js";
 import userRouter from "./user.js";
 import adminRouter from "./admin.js";
+import adminGrowthPlanRouter from "./admin-growth-plan.js";
 import cronRouter from "./cron.js";
+import growthPlanRouter from "./growth-plan.js";
 
 const router: IRouter = Router();
 
@@ -17,6 +19,8 @@ router.use("/investments", investmentsRouter);
 router.use("/withdrawals", withdrawalsRouter);
 router.use("/user", userRouter);
 router.use("/admin", adminRouter);
+router.use("/admin", adminGrowthPlanRouter);
+router.use("/growth-plan", growthPlanRouter);
 router.use("/cron", cronRouter);
 
 export default router;

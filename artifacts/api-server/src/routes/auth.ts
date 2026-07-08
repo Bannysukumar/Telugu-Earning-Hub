@@ -3,6 +3,7 @@ import { z } from "zod";
 import { admin } from "../lib/firebase-admin.js";
 import { identitySignUp, identitySignIn } from "../lib/identity-toolkit.js";
 import { createUserProfile, getUser, type UserDoc } from "../lib/firestore-db.js";
+import { emptyGrowthPlanState, getGrowthPlanSettings, migrateUserGrowthFields } from "../lib/growth-plan-db.js";
 import { requireAuth, ADMIN_EMAIL, formatUserResponse, type AuthedUser } from "../lib/auth.js";
 import { httpErrorFromUnknown, errorMessage } from "../lib/errors.js";
 import { logger } from "../lib/logger.js";
@@ -14,7 +15,15 @@ type UserRow = UserDoc & { id: string };
 /** If Firebase Auth has a user but Firestore `users/{uid}` is missing, create it (heals failed sign-ups). */
 async function ensureUserProfile(uid: string, defaults: { name: string; email: string }): Promise<UserRow> {
   const existing = await getUser(uid);
-  if (existing) return existing;
+  if (existing) {
+    const growthUser = existing as UserRow & { growthPlan?: unknown };
+    if (!growthUser.growthPlan) {
+      await migrateUserGrowthFields(uid);
+      const healed = await getUser(uid);
+      if (healed) return healed;
+    }
+    return existing;
+  }
 
   const record = await admin.auth().getUser(uid);
   const email = record.email ?? defaults.email;
@@ -50,6 +59,7 @@ const registerSchema = z
     password: z.string().min(6),
     confirmPassword: z.string().min(6, "Confirm password is required"),
     phone: z.string().trim().min(1, "Mobile number is required"),
+    referralCode: z.string().trim().optional(),
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: "Passwords do not match",
@@ -81,13 +91,29 @@ router.post("/register", async (req, res) => {
     return;
   }
 
-  const { name, email, password, phone } = parsed.data;
+  const { name, email, password, phone, referralCode } = parsed.data;
   const phoneStored = normalizeRegisterPhone(phone);
   let uid: string | null = null;
   try {
     const cred = await identitySignUp(email, password);
     uid = cred.localId;
     const role = email === ADMIN_EMAIL ? "admin" : "user";
+
+    let referredBy: string | null = null;
+    if (referralCode?.trim()) {
+      const sponsor = await getUser(referralCode.trim());
+      if (!sponsor || !sponsor.isActive) {
+        res.status(400).json({ error: "Invalid referral code" });
+        return;
+      }
+      if (sponsor.id === uid) {
+        res.status(400).json({ error: "You cannot refer yourself" });
+        return;
+      }
+      referredBy = sponsor.id;
+    }
+
+    const growthSettings = await getGrowthPlanSettings();
     await createUserProfile(uid, {
       name,
       email,
@@ -95,6 +121,9 @@ router.post("/register", async (req, res) => {
       role,
       walletBalance: 0,
       isActive: true,
+      referredBy,
+      directBonusPaid: false,
+      growthPlan: emptyGrowthPlanState(growthSettings) as unknown as Record<string, unknown>,
     });
     const user = await getUser(uid);
     if (!user) {

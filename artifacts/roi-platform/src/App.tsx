@@ -27,8 +27,10 @@ import AdminInvestments from "@/pages/admin/investments";
 import AdminIncomeLogs from "@/pages/admin/income-logs";
 import AdminSettings from "@/pages/admin/settings";
 import AdminDeposits from "@/pages/admin/deposits";
+import AdminGrowthPlan from "@/pages/admin/growth-plan";
 import IncomeHistory from "@/pages/user/income-history";
 import AddFund from "@/pages/user/add-fund";
+import SmartGrowthPlan from "@/pages/user/smart-growth";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -65,6 +67,7 @@ function Router() {
       <Route path="/income-history" component={() => <ProtectedRoute component={IncomeHistory} />} />
       <Route path="/withdraw" component={() => <ProtectedRoute component={Withdrawals} />} />
       <Route path="/add-fund" component={() => <ProtectedRoute component={AddFund} />} />
+      <Route path="/smart-growth" component={() => <ProtectedRoute component={SmartGrowthPlan} />} />
       <Route path="/profile" component={() => <ProtectedRoute component={Profile} />} />
       <Route path="/admin/dashboard" component={() => <ProtectedRoute component={AdminDashboard} adminOnly />} />
       <Route path="/admin/users" component={() => <ProtectedRoute component={AdminUsers} adminOnly />} />
@@ -74,6 +77,7 @@ function Router() {
       <Route path="/admin/income-logs" component={() => <ProtectedRoute component={AdminIncomeLogs} adminOnly />} />
       <Route path="/admin/settings" component={() => <ProtectedRoute component={AdminSettings} adminOnly />} />
       <Route path="/admin/deposits" component={() => <ProtectedRoute component={AdminDeposits} adminOnly />} />
+      <Route path="/admin/growth-plan" component={() => <ProtectedRoute component={AdminGrowthPlan} adminOnly />} />
       <Route path="/admin" component={() => <Redirect to="/admin/dashboard" />} />
       <Route component={NotFound} />
     </Switch>

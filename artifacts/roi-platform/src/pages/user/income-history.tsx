@@ -9,6 +9,8 @@ import { toast } from "sonner";
 
 function formatStatusType(t: string, row?: IncomeHistoryEntry) {
   if (t === "ROI") return "ROI";
+  if (t === "GROWTH_ROI") return "Growth ROI";
+  if (t === "GROWTH_DIRECT") return "Growth Direct";
   if (t === "ADJUSTMENT") {
     if (row?.investmentId === "__deposit__" || (row?.note && String(row.note).includes("Wallet deposit")))
       return "Deposit";

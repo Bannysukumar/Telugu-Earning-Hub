@@ -9,6 +9,11 @@ import {
   type WithdrawalDoc,
 } from "../lib/firestore-db.js";
 import { requireAuth, type AuthedUser } from "../lib/auth.js";
+import {
+  evaluateGrowthWithdrawalEligibility,
+  getGrowthPlanSettings,
+  getGrowthUser,
+} from "../lib/growth-plan-db.js";
 
 const router: IRouter = Router();
 
@@ -52,9 +57,31 @@ router.post("/", requireAuth, async (req, res) => {
 
   const { amount, bankDetails } = parsed.data;
 
-  if (amount < 500) {
+  const growthUser = await getGrowthUser(user.id);
+  if (!growthUser) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const growthCheck = await evaluateGrowthWithdrawalEligibility(growthUser, amount);
+  if (growthCheck.appliesGrowthRules) {
+    if (!growthCheck.eligible) {
+      res.status(400).json({ error: growthCheck.reason ?? "Withdrawal not allowed" });
+      return;
+    }
+    if (amount < growthCheck.minWithdrawal) {
+      res.status(400).json({ error: "Minimum withdrawal not reached" });
+      return;
+    }
+  } else if (amount < 500) {
     res.status(400).json({ error: "Minimum withdrawal amount is ₹500" });
     return;
+  }
+
+  let feePercentOverride: number | undefined;
+  if (growthCheck.appliesGrowthRules) {
+    const growthSettings = await getGrowthPlanSettings();
+    feePercentOverride = growthSettings.withdrawalFeePercent;
   }
 
   try {
@@ -62,6 +89,7 @@ router.post("/", requireAuth, async (req, res) => {
       userId: user.id,
       requestAmount: amount,
       bankDetails: bankDetails ?? null,
+      feePercentOverride,
     });
     const list = await listWithdrawalsByUser(user.id);
     const created = list.find((x) => x.id === wid);

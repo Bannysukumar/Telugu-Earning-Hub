@@ -1,4 +1,4 @@
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { useRegister } from "@workspace/api-client-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Button, Input, Label, Card } from "@/components/ui/core";
@@ -16,6 +16,7 @@ const registerSchema = z
     phone: z.string().trim().min(1, "Mobile number is required"),
     password: z.string().min(6, "Password must be at least 6 characters"),
     confirmPassword: z.string().min(1, "Please confirm your password"),
+    referralCode: z.string().trim().optional(),
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: "Passwords do not match",
@@ -37,12 +38,17 @@ type RegisterForm = z.infer<typeof registerSchema>;
 export default function Register() {
   const { login: setAuth } = useAuth();
   const { mutate: doRegister, isPending } = useRegister();
+  const search = useSearch();
+  const referralFromUrl = new URLSearchParams(search).get("ref") ?? "";
   const {
     register,
     handleSubmit,
     formState: { errors },
   } = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
+    defaultValues: {
+      referralCode: referralFromUrl,
+    },
   });
 
   const onSubmit = (data: RegisterForm) => {
@@ -54,6 +60,7 @@ export default function Register() {
           password: data.password,
           confirmPassword: data.confirmPassword,
           phone: data.phone,
+          referralCode: data.referralCode?.trim() || undefined,
         },
       },
       {
@@ -133,6 +140,12 @@ export default function Register() {
                 />
               </div>
               {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Referral code (optional)</Label>
+              <Input {...register("referralCode")} placeholder="Sponsor user ID from referral link" />
+              {errors.referralCode && <p className="text-sm text-destructive">{errors.referralCode.message}</p>}
             </div>
 
             <div className="space-y-2">

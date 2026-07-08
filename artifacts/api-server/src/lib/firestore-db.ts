@@ -374,7 +374,7 @@ export type IncomeHistoryDoc = {
   userId: string;
   investmentId: string;
   amount: number;
-  type: "ROI" | "ADJUSTMENT" | "WITHDRAWAL" | "INVESTMENT";
+  type: "ROI" | "ADJUSTMENT" | "WITHDRAWAL" | "INVESTMENT" | "GROWTH_ROI" | "GROWTH_DIRECT";
   date: Timestamp;
   planAmount: number;
   dayNumber: number;
@@ -444,11 +444,17 @@ export async function createUserProfile(
     role: string;
     walletBalance: number;
     isActive: boolean;
+    referredBy?: string | null;
+    directBonusPaid?: boolean;
+    growthPlan?: Record<string, unknown>;
   },
 ): Promise<void> {
   const now = FieldValue.serverTimestamp();
   await db.collection("users").doc(uid).set({
     ...data,
+    referredBy: data.referredBy ?? null,
+    directBonusPaid: data.directBonusPaid ?? false,
+    ...(data.growthPlan ? { growthPlan: data.growthPlan } : {}),
     createdAt: now,
     updatedAt: now,
   });
@@ -596,8 +602,9 @@ export async function createWithdrawalRequestAtomic(params: {
   userId: string;
   requestAmount: number;
   bankDetails: string | null;
+  feePercentOverride?: number;
 }): Promise<string> {
-  const { userId, requestAmount, bankDetails } = params;
+  const { userId, requestAmount, bankDetails, feePercentOverride } = params;
   const usersRef = db.collection("users").doc(userId);
   const settingsRef = db.collection("settings").doc(SETTINGS_GLOBAL_ID);
   const withdrawalsCol = db.collection("withdrawals");
@@ -617,7 +624,9 @@ export async function createWithdrawalRequestAtomic(params: {
 
     const settingsSnap = await tx.get(settingsRef);
     let feePct = 10;
-    if (settingsSnap.exists) {
+    if (typeof feePercentOverride === "number" && Number.isFinite(feePercentOverride)) {
+      feePct = feePercentOverride;
+    } else if (settingsSnap.exists) {
       const v = Number((settingsSnap.data() as Partial<SettingsDoc>).withdrawalFeePercent);
       if (Number.isFinite(v) && v >= 0 && v <= 100) feePct = v;
     }
