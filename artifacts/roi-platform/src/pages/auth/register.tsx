@@ -16,7 +16,7 @@ const registerSchema = z
     phone: z.string().trim().min(1, "Mobile number is required"),
     password: z.string().min(6, "Password must be at least 6 characters"),
     confirmPassword: z.string().min(1, "Please confirm your password"),
-    referralCode: z.string().trim().optional(),
+    referralCode: z.string().trim().min(2, "Sponsor referral code is required").max(32),
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: "Passwords do not match",
@@ -60,7 +60,7 @@ export default function Register() {
           password: data.password,
           confirmPassword: data.confirmPassword,
           phone: data.phone,
-          referralCode: data.referralCode?.trim() || undefined,
+          referralCode: data.referralCode.trim(),
         },
       },
       {

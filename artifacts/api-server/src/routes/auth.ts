@@ -2,7 +2,12 @@ import { Router, type IRouter, type Request } from "express";
 import { z } from "zod";
 import { admin } from "../lib/firebase-admin.js";
 import { identitySignUp, identitySignIn } from "../lib/identity-toolkit.js";
-import { createUserProfile, getUser, type UserDoc } from "../lib/firestore-db.js";
+import { createUserProfile, getUser, updateUser, getBinaryPlanEnabled, type UserDoc } from "../lib/firestore-db.js";
+import {
+  generateUniqueReferralCode,
+  findReferrerByCode,
+  resolveBinaryPlacementForSignup,
+} from "../lib/investment-mlm.js";
 import { emptyGrowthPlanState, getGrowthPlanSettings, migrateUserGrowthFields } from "../lib/growth-plan-db.js";
 import { requireAuth, ADMIN_EMAIL, formatUserResponse, type AuthedUser } from "../lib/auth.js";
 import { httpErrorFromUnknown, errorMessage } from "../lib/errors.js";
@@ -30,6 +35,8 @@ async function ensureUserProfile(uid: string, defaults: { name: string; email: s
   const name =
     record.displayName?.trim() || defaults.name || email.split("@")[0] || "User";
   const role = email === ADMIN_EMAIL ? "admin" : "user";
+  const referralCode = await generateUniqueReferralCode();
+  const growthSettings = await getGrowthPlanSettings();
 
   await createUserProfile(uid, {
     name,
@@ -38,6 +45,13 @@ async function ensureUserProfile(uid: string, defaults: { name: string; email: s
     role,
     walletBalance: 0,
     isActive: true,
+    referralCode,
+    referrerId: null,
+    binaryParentId: null,
+    binarySide: null,
+    referredBy: null,
+    directBonusPaid: false,
+    growthPlan: emptyGrowthPlanState(growthSettings) as unknown as Record<string, unknown>,
   });
 
   const user = await getUser(uid);
@@ -59,7 +73,8 @@ const registerSchema = z
     password: z.string().min(6),
     confirmPassword: z.string().min(6, "Confirm password is required"),
     phone: z.string().trim().min(1, "Mobile number is required"),
-    referralCode: z.string().trim().optional(),
+    referralCode: z.string().trim().min(2, "Sponsor referral code is required").max(32),
+    binaryPreferredSide: z.enum(["left", "right"]).optional(),
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: "Passwords do not match",
@@ -91,28 +106,37 @@ router.post("/register", async (req, res) => {
     return;
   }
 
-  const { name, email, password, phone, referralCode } = parsed.data;
+  const { name, email, password, phone, referralCode: sponsorCode, binaryPreferredSide } = parsed.data;
   const phoneStored = normalizeRegisterPhone(phone);
+  const binaryPlanEnabled = await getBinaryPlanEnabled();
+
+  let referrerId: string | null = null;
+  let binaryParentId: string | null = null;
+  let binarySide: "left" | "right" | null = null;
+
+  const rawSponsor = sponsorCode.trim();
+  const sponsor = await findReferrerByCode(rawSponsor);
+  if (!sponsor) {
+    res.status(400).json({ error: "Invalid referral code" });
+    return;
+  }
+  referrerId = sponsor.id;
+  if (binaryPlanEnabled) {
+    if (binaryPreferredSide !== "left" && binaryPreferredSide !== "right") {
+      res.status(400).json({ error: "Choose Left or Right under your sponsor." });
+      return;
+    }
+    const placement = await resolveBinaryPlacementForSignup(sponsor.id, binaryPreferredSide);
+    binaryParentId = placement.parentId;
+    binarySide = placement.side;
+  }
+
   let uid: string | null = null;
   try {
     const cred = await identitySignUp(email, password);
     uid = cred.localId;
     const role = email === ADMIN_EMAIL ? "admin" : "user";
-
-    let referredBy: string | null = null;
-    if (referralCode?.trim()) {
-      const sponsor = await getUser(referralCode.trim());
-      if (!sponsor || !sponsor.isActive) {
-        res.status(400).json({ error: "Invalid referral code" });
-        return;
-      }
-      if (sponsor.id === uid) {
-        res.status(400).json({ error: "You cannot refer yourself" });
-        return;
-      }
-      referredBy = sponsor.id;
-    }
-
+    const myReferralCode = await generateUniqueReferralCode();
     const growthSettings = await getGrowthPlanSettings();
     await createUserProfile(uid, {
       name,
@@ -121,7 +145,11 @@ router.post("/register", async (req, res) => {
       role,
       walletBalance: 0,
       isActive: true,
-      referredBy,
+      referralCode: myReferralCode,
+      referrerId,
+      binaryParentId,
+      binarySide,
+      referredBy: referrerId,
       directBonusPaid: false,
       growthPlan: emptyGrowthPlanState(growthSettings) as unknown as Record<string, unknown>,
     });
@@ -129,7 +157,7 @@ router.post("/register", async (req, res) => {
     if (!user) {
       throw new Error("Profile missing after create (Firestore write may have failed).");
     }
-    res.status(201).json({ user: formatUserResponse(user), token: cred.idToken });
+    res.status(201).json({ user: await formatUserResponse(user), token: cred.idToken });
   } catch (e: unknown) {
     const msg = errorMessage(e);
     if (msg.includes("EMAIL_EXISTS")) {
@@ -141,7 +169,7 @@ router.post("/register", async (req, res) => {
           return;
         }
         res.status(200).json({
-          user: formatUserResponse(user),
+          user: await formatUserResponse(user),
           token: cred.idToken,
           message: "Account already existed; signed you in and synced your profile.",
         });
@@ -201,7 +229,7 @@ router.post("/login", async (req, res) => {
       res.status(401).json({ error: "Account deactivated. Please contact support." });
       return;
     }
-    res.json({ user: formatUserResponse(user), token: cred.idToken });
+    res.json({ user: await formatUserResponse(user), token: cred.idToken });
   } catch (e: unknown) {
     logger.warn({ err: e }, "POST /auth/login failed");
     const m = errorMessage(e);
@@ -224,8 +252,20 @@ router.post("/logout", (_req, res) => {
 });
 
 router.get("/me", requireAuth, async (req, res) => {
-  const user = (req as Request & { user: AuthedUser }).user;
-  res.json(formatUserResponse(user));
+  const reqUser = (req as Request & { user: AuthedUser }).user;
+  const fresh = await getUser(reqUser.id);
+  if (!fresh) {
+    res.status(401).json({ error: "Account not found" });
+    return;
+  }
+  if (!fresh.referralCode?.trim()) {
+    const referralCode = await generateUniqueReferralCode();
+    await updateUser(fresh.id, { referralCode });
+    const again = await getUser(fresh.id);
+    res.json(await formatUserResponse(again ?? fresh));
+    return;
+  }
+  res.json(await formatUserResponse(fresh));
 });
 
 export default router;

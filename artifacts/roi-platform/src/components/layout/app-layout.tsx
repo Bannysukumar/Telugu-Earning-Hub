@@ -16,36 +16,69 @@ import {
   ScrollText,
   Settings,
   Banknote,
+  UserPlus,
+  GitBranch,
+  SendHorizontal,
+  Gift,
+  Percent,
   Sparkles,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  getGetMyBinaryTreeQueryOptions,
+  getGetMyDirectLevelQueryOptions,
+  getGetMySponsorTreeQueryOptions,
+} from "@workspace/api-client-react";
 import { Button } from "@/components/ui/core";
 import { cn } from "@/lib/utils";
 import { BrandMark } from "@/lib/brand";
+import { usePlatformFeatures } from "@/hooks/use-platform-features";
 
 export function AppLayout({ children, isAdmin = false }: { children: React.ReactNode, isAdmin?: boolean }) {
   const { user, logout } = useAuth();
+  const queryClient = useQueryClient();
   const [location] = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const { binaryPlanEnabled } = usePlatformFeatures();
+
+  useEffect(() => {
+    if (!user) return;
+    void queryClient.prefetchQuery(getGetMyDirectLevelQueryOptions());
+    void queryClient.prefetchQuery(getGetMySponsorTreeQueryOptions({ maxDepth: 5 }));
+    if (binaryPlanEnabled) {
+      void queryClient.prefetchQuery(getGetMyBinaryTreeQueryOptions({ maxDepth: 5 }));
+    }
+  }, [user, queryClient, binaryPlanEnabled]);
 
   const userRoutes = [
     { name: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
     { name: "Smart Growth ₹200", path: "/smart-growth", icon: Sparkles },
+    { name: "Direct level", path: "/direct-level", icon: UserPlus },
+    { name: "Investment team tree", path: "/investment-tree-level", icon: Layers },
+    ...(binaryPlanEnabled ? [{ name: "Binary tree", path: "/tree-level", icon: GitBranch }] : []),
     { name: "My Investments", path: "/investments", icon: Activity },
     { name: "Income History", path: "/income-history", icon: History },
     { name: "Withdraw Funds", path: "/withdraw", icon: ArrowRightLeft },
     { name: "Add funds", path: "/add-fund", icon: Banknote },
+    { name: "Send funds", path: "/transfer-funds", icon: SendHorizontal },
+    { name: "Gift a plan", path: "/gift-plan", icon: Gift },
     { name: "My Profile", path: "/profile", icon: User },
   ];
 
   const adminRoutes = [
     { name: "Overview", path: "/admin/dashboard", icon: LayoutDashboard },
+    { name: "Direct level", path: "/admin/direct-level", icon: UserPlus },
+    { name: "Investment team tree", path: "/admin/investment-tree-level", icon: Layers },
+    ...(binaryPlanEnabled ? [{ name: "Binary tree", path: "/admin/tree-level", icon: GitBranch }] : []),
     { name: "Manage Users", path: "/admin/users", icon: Users },
     { name: "Investment Plans", path: "/admin/plans", icon: Layers },
     { name: "Smart Growth Plan", path: "/admin/growth-plan", icon: Sparkles },
+    { name: "Level income", path: "/admin/level-income", icon: Percent },
     { name: "All Investments", path: "/admin/investments", icon: Activity },
     { name: "Income Logs", path: "/admin/income-logs", icon: ScrollText },
     { name: "Withdrawal Requests", path: "/admin/withdrawals", icon: ArrowRightLeft },
+    { name: "Withdrawal fees", path: "/admin/withdrawal-fees", icon: Percent },
     { name: "Deposits (QR)", path: "/admin/deposits", icon: Banknote },
     { name: "Settings", path: "/admin/settings", icon: Settings },
   ];

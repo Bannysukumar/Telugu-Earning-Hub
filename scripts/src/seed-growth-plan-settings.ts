@@ -1,9 +1,24 @@
 import admin from "firebase-admin";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { GROWTH_PLAN_DEFAULTS, GROWTH_SETTINGS_DOC_ID } from "../../artifacts/api-server/src/lib/growth-plan-db.ts";
 
 const SERVICE_ACCOUNT_FILE = "telugu-earning-hub-2f74e-firebase-adminsdk-fbsvc-b79180c635.json";
+const GROWTH_SETTINGS_DOC_ID = "global";
+
+const GROWTH_PLAN_DEFAULTS = {
+  planName: "Smart Growth Plan ₹200",
+  planAmount: 200,
+  planDuration: 12,
+  dailyRoi: 20,
+  maxEarnings: 400,
+  directBonus: 20,
+  withdrawalFeePercent: 10,
+  minWithdrawal: 200,
+  planStatus: "active",
+  enableReentry: true,
+  enableRoi: true,
+  enableReferralBonus: true,
+};
 
 function init() {
   const saPath = join(process.cwd(), SERVICE_ACCOUNT_FILE);
