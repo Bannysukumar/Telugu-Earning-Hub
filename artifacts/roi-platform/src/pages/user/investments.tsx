@@ -15,7 +15,13 @@ export default function Investments() {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h2 className="text-3xl font-display font-bold">My Investments</h2>
-          <p className="text-muted-foreground">Track your active and completed plans</p>
+          <p className="text-muted-foreground">
+            Each card is one position. ROI, level income, and other bonuses count toward that position&apos;s cap. You can activate the same plan again from{" "}
+            <Link href="/plans" className="text-primary hover:underline">
+              Investment plans
+            </Link>
+            .
+          </p>
         </div>
         <Link href="/plans">
           <Button><Plus className="h-4 w-4 mr-2"/> New Investment</Button>

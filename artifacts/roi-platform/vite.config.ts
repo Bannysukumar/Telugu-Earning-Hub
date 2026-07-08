@@ -26,6 +26,16 @@ if (!basePath) {
   );
 }
 
+/** Forward browser `/api/*` to the Node API (dev server + `vite preview` / `pnpm serve`). */
+function apiDevProxy() {
+  return {
+    "/api": {
+      target: process.env.VITE_API_PROXY_TARGET ?? "http://127.0.0.1:3001",
+      changeOrigin: true,
+    },
+  };
+}
+
 export default defineConfig({
   base: basePath,
   plugins: [
@@ -65,12 +75,7 @@ export default defineConfig({
     // VITE_API_PROXY_TARGET is set by repo-root `pnpm dev` / `pnpm dev:parallel` (dev-all.mjs) to the real API port.
     // If you run only `pnpm --filter @workspace/roi-platform dev`, rebuild the API after server changes:
     //   pnpm --filter @workspace/api-server run build
-    proxy: {
-      "/api": {
-        target: process.env.VITE_API_PROXY_TARGET ?? "http://127.0.0.1:3001",
-        changeOrigin: true,
-      },
-    },
+    proxy: apiDevProxy(),
     fs: {
       strict: true,
       deny: ["**/.*"],
@@ -80,5 +85,7 @@ export default defineConfig({
     port,
     host: "0.0.0.0",
     allowedHosts: true,
+    // Without this, `vite preview` answers `/api/*` itself → "Cannot GET /api/..." HTML 404.
+    proxy: apiDevProxy(),
   },
 });

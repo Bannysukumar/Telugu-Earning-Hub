@@ -84,7 +84,8 @@ export default function AdminDeposits() {
                   <TableHead>User</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
                   <TableHead>Transaction ID</TableHead>
-                  <TableHead>Screenshot</TableHead>
+                  <TableHead>Payee UPI</TableHead>
+                  <TableHead>Proof</TableHead>
                   <TableHead>Note</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Status</TableHead>
@@ -99,24 +100,29 @@ export default function AdminDeposits() {
                       <div className="text-xs text-muted-foreground">{d.userEmail}</div>
                     </TableCell>
                     <TableCell className="text-right font-bold tabular-nums">{formatINR(d.amount)}</TableCell>
-                    <TableCell className="text-xs font-mono max-w-[120px] break-all">{d.transactionId}</TableCell>
+                    <TableCell className="text-xs font-mono max-w-[120px] break-all">{d.transactionId || "—"}</TableCell>
+                    <TableCell className="text-xs font-mono max-w-[100px] break-all">{d.payeeUpiId || "—"}</TableCell>
                     <TableCell>
-                      <Dialog>
-                        <DialogTrigger asChild>
-                          <Button type="button" size="sm" variant="outline" className="gap-1">
-                            <ImageIcon className="h-4 w-4" />
-                            View
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-lg">
-                          <DialogHeader>
-                            <DialogTitle>Payment screenshot</DialogTitle>
-                          </DialogHeader>
-                          <div className="rounded-lg border border-border overflow-hidden bg-muted/30">
-                            <img src={d.screenshotUrl} alt="Proof" className="w-full h-auto max-h-[70vh] object-contain" />
-                          </div>
-                        </DialogContent>
-                      </Dialog>
+                      {d.screenshotUrl ? (
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button type="button" size="sm" variant="outline" className="gap-1">
+                              <ImageIcon className="h-4 w-4" />
+                              View
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="max-w-lg">
+                            <DialogHeader>
+                              <DialogTitle>Payment screenshot</DialogTitle>
+                            </DialogHeader>
+                            <div className="rounded-lg border border-border overflow-hidden bg-muted/30">
+                              <img src={d.screenshotUrl} alt="Proof" className="w-full h-auto max-h-[70vh] object-contain" />
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">UTR only</span>
+                      )}
                     </TableCell>
                     <TableCell className="max-w-[140px] text-xs text-muted-foreground break-words">{d.note ?? "—"}</TableCell>
                     <TableCell className="text-sm whitespace-nowrap">{formatDate(d.createdAt)}</TableCell>
@@ -147,7 +153,7 @@ export default function AdminDeposits() {
                 ))}
                 {filtered.length === 0 && !isLoading && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center p-8 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center p-8 text-muted-foreground">
                       No deposit requests found.
                     </TableCell>
                   </TableRow>

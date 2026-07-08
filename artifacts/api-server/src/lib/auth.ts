@@ -2,7 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import { admin } from "./firebase-admin.js";
 import { getUser, toIso, type UserDoc } from "./firestore-db.js";
 
-export const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@roiplatform.com";
+export const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "bannysukumar@gmail.com";
 
 export type AuthedUser = UserDoc & { id: string };
 
@@ -50,7 +50,17 @@ export async function requireCronOrAdmin(req: Request, res: Response, next: Next
   await requireAdmin(req, res, next);
 }
 
-export function formatUserResponse(user: AuthedUser) {
+export async function formatUserResponse(user: AuthedUser) {
+  let referrerName: string | null = null;
+  let referrerEmail: string | null = null;
+  if (user.referrerId) {
+    const referrer = await getUser(user.referrerId);
+    if (referrer) {
+      referrerName = referrer.name;
+      referrerEmail = referrer.email;
+    }
+  }
+
   return {
     id: user.id,
     name: user.name,
@@ -60,5 +70,10 @@ export function formatUserResponse(user: AuthedUser) {
     walletBalance: user.walletBalance,
     isActive: user.isActive,
     createdAt: toIso(user.createdAt),
+    referralCode: user.referralCode ?? null,
+    qualifiedDirectReferrals: user.qualifiedDirectReferrals ?? 0,
+    referrerId: user.referrerId ?? null,
+    referrerName,
+    referrerEmail,
   };
 }

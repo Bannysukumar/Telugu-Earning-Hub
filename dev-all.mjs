@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 const apiRoot = path.join(repoRoot, "artifacts", "api-server");
 const webRoot = path.join(repoRoot, "artifacts", "roi-platform");
+const freePortScript = path.join(repoRoot, "scripts", "free-tcp-port.mjs");
 
 /** @param {number} start */
 function pickPort(start) {
@@ -25,24 +26,55 @@ function pickPort(start) {
   });
 }
 
-execFileSync(process.execPath, ["./build.mjs"], {
-  cwd: apiRoot,
-  stdio: "inherit",
-  env: { ...process.env, NODE_ENV: "development" },
-});
-
 const preferredApi = Number(process.env.API_PORT) || 3001;
-const apiPort = await pickPort(preferredApi);
-if (apiPort !== preferredApi) {
-  console.log(`[dev] API port ${preferredApi} is busy; using ${apiPort}. Proxy: http://127.0.0.1:${apiPort}`);
+
+// A stale API left on the default port causes 404 on new routes (e.g. sponsor-tree).
+try {
+  execFileSync(process.execPath, [freePortScript, String(preferredApi)], {
+    cwd: repoRoot,
+    stdio: "inherit",
+  });
+} catch {
+  /* port may already be free */
 }
 
-const apiEntry = path.join(apiRoot, "dist", "index.mjs");
-const apiChild = spawn(process.execPath, ["--enable-source-maps", apiEntry], {
+const apiPort = await pickPort(preferredApi);
+if (apiPort !== preferredApi) {
+  console.warn(
+    `[dev] Port ${preferredApi} is still busy after cleanup; API on ${apiPort}. ` +
+      `Set VITE_API_PROXY_TARGET=http://127.0.0.1:${apiPort} if you run Vite alone.`,
+  );
+}
+
+async function verifyApiRoutes(baseUrl) {
+  try {
+    const res = await fetch(`${baseUrl}/api/user/sponsor-tree`);
+    if (res.status === 404) {
+      console.error(
+        "[dev] ERROR: GET /api/user/sponsor-tree returned 404. The API bundle is stale. " +
+          "Stop all Node processes, run `pnpm dev` again from the repo root.",
+      );
+      return;
+    }
+    if (res.status === 401) {
+      console.log("[dev] API routes OK (sponsor-tree requires auth, got 401 as expected).");
+    } else {
+      console.log(`[dev] API sponsor-tree probe: HTTP ${res.status}`);
+    }
+  } catch (e) {
+    console.warn("[dev] Could not probe API routes:", e instanceof Error ? e.message : e);
+  }
+}
+
+const apiChild = spawn(process.execPath, ["./dev-watch.mjs"], {
   cwd: apiRoot,
   stdio: "inherit",
   env: { ...process.env, PORT: String(apiPort), NODE_ENV: "development" },
 });
+
+await new Promise((resolve) => setTimeout(resolve, 2500));
+await verifyApiRoutes(`http://127.0.0.1:${apiPort}`);
+console.log(`[dev] API → http://127.0.0.1:${apiPort}  |  Web → http://127.0.0.1:5173  |  Proxy /api → API`);
 
 const webChild = spawn("pnpm", ["exec", "vite", "--config", "vite.config.ts", "--host", "0.0.0.0"], {
   cwd: webRoot,

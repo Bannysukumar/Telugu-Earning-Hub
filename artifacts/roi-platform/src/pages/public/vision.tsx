@@ -1,9 +1,12 @@
 import { PublicLayout } from "@/components/layout/public-layout";
 import { Card, CardContent } from "@/components/ui/core";
 import { SITE_NAME } from "@/lib/brand";
+import { formatINR } from "@/lib/utils";
 import { Eye, Heart, LineChart, Target } from "lucide-react";
+import { usePlatformFeatures } from "@/hooks/use-platform-features";
 
 export default function Vision() {
+  const { binaryPlanEnabled } = usePlatformFeatures();
   return (
     <PublicLayout>
       <div className="max-w-4xl mx-auto px-4 py-20">
@@ -18,21 +21,31 @@ export default function Vision() {
 
         <div className="prose prose-invert max-w-none mb-16 space-y-6 text-muted-foreground leading-relaxed">
           <p>
-            We envision a platform where routine savings can grow through transparent, rules-based daily returns — with automation handling disbursements so investors spend less time chasing updates and more time planning their goals.
+            {binaryPlanEnabled
+              ? `We are building a disciplined community where small cheques (${formatINR(200)}) compound through binary structure, transparent ledgers, and automation that runs on a fixed IST payout cadence.`
+              : "We are building a disciplined community funded through transparent wallets, scheduled ROI, and referral growth — with automation on a fixed IST payout cadence."}
           </p>
           <p>
-            Success means reliable weekday accruals, clear stop rules at 2× principal or 400 days, and tools that let you see every credit in one place. We are investing in security, auditability, and a calm, professional experience across mobile and desktop.
+            {binaryPlanEnabled
+              ? "Success means everyone understands the per-position 2× cap, how to stack multiple activations of the same plan, and how binary pairs plus optional ROI interact before they fund a wallet."
+              : "Success means everyone understands the per-position 2× cap, how to stack multiple activations of the same plan, and how ROI plus referral bonuses interact before they fund a wallet."}
           </p>
           <p>
-            Long term, we want {SITE_NAME} to be synonymous with disciplined ROI investing in our community: no hype, no referral games — just clear plans, admin oversight when needed, and technology you can trust.
+            Long term, {SITE_NAME} should stand for sustainable MLM design: capped liabilities, upgrade paths after each cycle, and admin tooling that can pause or explain any position instantly.
           </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {[
             { icon: Eye, title: "Clarity first", desc: "You always know how your plan works: rate, schedule, caps, and history." },
-            { icon: LineChart, title: "Measured growth", desc: "Returns follow published rules; automation runs on a fixed IST schedule." },
-            { icon: Target, title: "Defined outcomes", desc: "Plans complete at 2× or 400 days — predictable boundaries, not open-ended promises." },
+            {
+              icon: LineChart,
+              title: "Measured growth",
+              desc: binaryPlanEnabled
+                ? "Binary pair income, direct bonuses, and ROI all feed one wallet with a shared 2× ceiling per cycle."
+                : "Direct bonuses and ROI feed one wallet with a shared 2× ceiling per cycle.",
+            },
+            { icon: Target, title: "Defined outcomes", desc: `Each ${formatINR(200)} activation stops paying once ${formatINR(400)} is credited — then you rejoin or climb the upgrade ladder.` },
             { icon: Heart, title: "Community trust", desc: "Support, fair processes, and admin controls aligned with investor protection." },
           ].map((item, i) => (
             <Card key={i}>

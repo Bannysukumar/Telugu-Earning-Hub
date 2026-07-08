@@ -2,7 +2,7 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { useAdminGetDashboard } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/core";
 import { formatINR } from "@/lib/utils";
-import { Users, Wallet, Target, ArrowRightLeft, Zap, Banknote } from "lucide-react";
+import { Users, Wallet, Target, ArrowRightLeft, Zap, Banknote, UserPlus } from "lucide-react";
 
 /* Trigger Daily ROI — commented out (scheduled via Cloud Function / CRON_SECRET)
 import { Button } from "@/components/ui/core";
@@ -33,6 +33,13 @@ export default function AdminDashboard() {
 
   const cards = [
     { title: "Total Users", val: stats?.totalUsers, icon: Users, c: "text-blue-400" },
+    {
+      title: "Daily registrations",
+      val: stats?.dailyRegistrations ?? 0,
+      icon: UserPlus,
+      c: "text-sky-400",
+      subtitle: "New sign-ups today (IST)",
+    },
     { title: "Total Invested", val: formatINR(stats?.totalInvested || 0), icon: Target, c: "text-emerald-400" },
     { title: "Total Earned (Paid out)", val: formatINR(stats?.totalEarned || 0), icon: Wallet, c: "text-purple-400" },
     { title: "Pending Withdrawals", val: stats?.pendingWithdrawals, icon: ArrowRightLeft, c: "text-amber-400" },
@@ -62,7 +69,10 @@ export default function AdminDashboard() {
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">{card.title}</p>
-                <h4 className="text-2xl font-bold">{card.val}</h4>
+                {"subtitle" in card && card.subtitle ? (
+                  <p className="text-xs text-muted-foreground mt-0.5">{card.subtitle}</p>
+                ) : null}
+                <h4 className="text-2xl font-bold mt-1">{card.val}</h4>
               </div>
             </CardContent>
           </Card>

@@ -1,15 +1,15 @@
 import { Router, type IRouter, type Request } from "express";
 import { z } from "zod";
-import { Timestamp, FieldValue } from "firebase-admin/firestore";
+import { Timestamp } from "firebase-admin/firestore";
 import {
   getPlan,
-  createInvestment,
   getInvestment,
   listInvestmentsByUser,
-  type InvestmentDoc,
   getUser,
-  db,
+  userHasActiveInvestment,
+  type InvestmentDoc,
 } from "../lib/firestore-db.js";
+import { createInvestmentWithMlmAtomic, DEFAULT_ROI_POOL_PERCENT, isStandalonePlan } from "../lib/investment-mlm.js";
 import { requireAuth, type AuthedUser } from "../lib/auth.js";
 
 const router: IRouter = Router();
@@ -44,6 +44,7 @@ function formatInvestment(investment: InvestmentDoc & { id: string }, planName: 
         ? investment.lastRoiUpdate.toDate().toISOString()
         : null
       : null,
+    roiPoolPercent: investment.roiPoolPercent ?? DEFAULT_ROI_POOL_PERCENT,
   };
 }
 
@@ -59,8 +60,12 @@ router.get("/", requireAuth, async (req, res) => {
   res.json(out);
 });
 
-const createSchema = z.object({ planId: z.string().min(1) });
+const createSchema = z.object({
+  planId: z.string().min(1),
+  beneficiaryUserId: z.string().min(1).optional(),
+});
 
+/** Members may hold multiple investments, including several active positions on the same planId. */
 router.post("/", requireAuth, async (req, res) => {
   const user = (req as Request & { user: AuthedUser }).user;
   const parsed = createSchema.safeParse(req.body);
@@ -69,76 +74,67 @@ router.post("/", requireAuth, async (req, res) => {
     return;
   }
 
-  const { planId } = parsed.data;
+  const { planId, beneficiaryUserId: beneficiaryRaw } = parsed.data;
+  const beneficiaryId =
+    beneficiaryRaw && beneficiaryRaw.trim() !== user.id ? beneficiaryRaw.trim() : user.id;
+
   const plan = await getPlan(planId);
   if (!plan || !plan.isActive) {
     res.status(404).json({ error: "Plan not found or inactive" });
     return;
   }
 
-  // Use a transaction to check wallet balance, deduct amount, and create investment atomically
-  const invId = await db.runTransaction(async (tx) => {
-    const userRef = db.collection("users").doc(user.id);
-    const userSnap = await tx.get(userRef);
-    if (!userSnap.exists) {
-      throw new Error("User not found");
+  if (isStandalonePlan(plan)) {
+    if (beneficiaryId !== user.id) {
+      res.status(400).json({ error: "This plan can only be activated on your own account." });
+      return;
     }
-    const userData = userSnap.data() as { walletBalance?: number };
-    const balance = Number(userData.walletBalance ?? 0);
-
-    if (balance < plan.amount) {
-      throw new Error("Insufficient wallet balance. Please add funds to your wallet.");
-    }
-
-    // Deduct from wallet
-    tx.update(userRef, {
-      walletBalance: balance - plan.amount,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-
-    // Create investment record
-    const investmentsCol = db.collection("investments");
-    const invRef = investmentsCol.doc();
-    tx.set(invRef, {
-      userId: user.id,
-      planId: plan.id,
-      amount: plan.amount,
-      dailyRoi: plan.dailyRoi,
-      maxReturn: plan.maxReturn,
-      maxDays: plan.maxDays,
-      totalEarned: 0,
-      daysCompleted: 0,
-      systemActive: true,
-      manualStatus: "active",
-      isActive: true,
-      startDate: Timestamp.now(),
-      lastRoiUpdate: null,
-      createdAt: FieldValue.serverTimestamp(),
-    });
-
-    // Create income history entry for the investment
-    const incomeHistoryCol = db.collection("incomeHistory");
-    const incRef = incomeHistoryCol.doc();
-    tx.set(incRef, {
-      userId: user.id,
-      investmentId: invRef.id,
-      amount: -plan.amount,
-      type: "INVESTMENT",
-      planAmount: plan.amount,
-      dayNumber: 0,
-      note: `Investment activated - ${plan.name}`,
-      date: FieldValue.serverTimestamp(),
-    });
-
-    return invRef.id;
-  });
-
-  const investment = await getInvestment(invId);
-  if (!investment) {
-    res.status(500).json({ error: "Investment not persisted" });
-    return;
   }
-  res.status(201).json(formatInvestment(investment, plan.name));
+
+  if (beneficiaryId !== user.id) {
+    const target = await getUser(beneficiaryId);
+    if (!target) {
+      res.status(404).json({ error: "Member not found for this activation." });
+      return;
+    }
+    if (target.role === "admin") {
+      res.status(403).json({ error: "Cannot activate a plan for an admin account." });
+      return;
+    }
+    if (!target.isActive) {
+      res.status(403).json({ error: "That member account is inactive." });
+      return;
+    }
+    const payerHasActivePlan = await userHasActiveInvestment(user.id);
+    if (!payerHasActivePlan) {
+      res.status(403).json({
+        error: "You need an active investment plan on your account before activating a plan for another member.",
+      });
+      return;
+    }
+  }
+
+  try {
+    const invId = await createInvestmentWithMlmAtomic({
+      userId: beneficiaryId,
+      plan,
+      deductFromWallet: true,
+      walletDebitUserId: beneficiaryId === user.id ? undefined : user.id,
+    });
+    const investment = await getInvestment(invId);
+    if (!investment) {
+      res.status(500).json({ error: "Investment not persisted" });
+      return;
+    }
+    res.status(201).json(formatInvestment(investment, plan.name));
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("Insufficient wallet balance")) {
+      res.status(400).json({ error: msg });
+      return;
+    }
+    throw e;
+  }
 });
 
 export { formatInvestment };

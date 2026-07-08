@@ -6,8 +6,33 @@ import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Edit2, ShieldAlert } from "lucide-react";
+import { usePlatformFeatures } from "@/hooks/use-platform-features";
+
+function DirectLegList({
+  members,
+  accent,
+}: {
+  members: { id: string; name: string }[];
+  accent: "left" | "right";
+}) {
+  if (members.length === 0) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  const color =
+    accent === "left" ? "text-emerald-600 dark:text-emerald-400" : "text-sky-600 dark:text-sky-400";
+  return (
+    <ul className={`text-xs space-y-0.5 ${color}`}>
+      {members.map((m) => (
+        <li key={m.id} className="leading-snug">
+          {m.name}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export default function AdminUsers() {
+  const { binaryPlanEnabled } = usePlatformFeatures();
   const { data: users, isLoading } = useAdminGetUsers();
   const { mutate: updateUser, isPending } = useAdminUpdateUser();
   const queryClient = useQueryClient();
@@ -20,7 +45,11 @@ export default function AdminUsers() {
     const list = users ?? [];
     const q = emailSearch.trim().toLowerCase();
     if (!q) return list;
-    return list.filter((u) => u.email.toLowerCase().includes(q));
+    return list.filter(
+      (u) =>
+        u.email.toLowerCase().includes(q) ||
+        (u.referralCode?.toLowerCase().includes(q) ?? false),
+    );
   }, [users, emailSearch]);
 
   const handleUpdate = () => {
@@ -59,10 +88,10 @@ export default function AdminUsers() {
           </p>
         </div>
         <div className="space-y-1 w-full sm:max-w-xs">
-          <Label className="text-xs">Search by email</Label>
+          <Label className="text-xs">Search by email or referral code</Label>
           <Input
             type="search"
-            placeholder="e.g. name@domain.com"
+            placeholder="Email or referral code"
             value={emailSearch}
             onChange={(e) => setEmailSearch(e.target.value)}
             className="h-10 rounded-xl"
@@ -77,6 +106,9 @@ export default function AdminUsers() {
               <TableRow>
                 <TableHead>User</TableHead>
                 <TableHead>Phone</TableHead>
+                <TableHead>Referral code</TableHead>
+                {binaryPlanEnabled ? <TableHead>Left directs</TableHead> : null}
+                {binaryPlanEnabled ? <TableHead>Right directs</TableHead> : null}
                 <TableHead>Wallet Bal</TableHead>
                 <TableHead>Invested</TableHead>
                 <TableHead>Status</TableHead>
@@ -93,6 +125,19 @@ export default function AdminUsers() {
                     {u.role === 'admin' && <Badge className="mt-1 text-[10px] h-4">ADMIN</Badge>}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{u.phone || '-'}</TableCell>
+                  <TableCell className="font-mono text-sm tabular-nums">
+                    {u.referralCode ?? <span className="text-muted-foreground font-sans">—</span>}
+                  </TableCell>
+                  {binaryPlanEnabled ? (
+                    <TableCell className="align-top max-w-[140px]">
+                      <DirectLegList members={u.directLeft ?? []} accent="left" />
+                    </TableCell>
+                  ) : null}
+                  {binaryPlanEnabled ? (
+                    <TableCell className="align-top max-w-[140px]">
+                      <DirectLegList members={u.directRight ?? []} accent="right" />
+                    </TableCell>
+                  ) : null}
                   <TableCell className="font-semibold text-emerald-400">{formatINR(u.walletBalance)}</TableCell>
                   <TableCell>{formatINR(u.totalInvested)}</TableCell>
                   <TableCell>
@@ -113,8 +158,8 @@ export default function AdminUsers() {
               ))}
               {filteredUsers.length === 0 && !isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center p-8 text-muted-foreground">
-                    No users match that email.
+                  <TableCell colSpan={10} className="text-center p-8 text-muted-foreground">
+                    No users match that search.
                   </TableCell>
                 </TableRow>
               ) : null}

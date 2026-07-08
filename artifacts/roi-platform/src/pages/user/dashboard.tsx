@@ -1,13 +1,16 @@
 import { AppLayout } from "@/components/layout/app-layout";
 import { useGetDashboard, useGetMyInvestments } from "@workspace/api-client-react";
 import { Card, CardContent, Button, Badge } from "@/components/ui/core";
-import { ArrowUpRight, Wallet, Activity, ArrowRightLeft, Target } from "lucide-react";
+import { ArrowUpRight, Wallet, Activity, ArrowRightLeft, Target, Users, Copy } from "lucide-react";
 import { formatINR, formatDate } from "@/lib/utils";
 import { Link } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
+import { toast } from "sonner";
 
 export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useGetDashboard();
   const { data: investments, isLoading: invLoading } = useGetMyInvestments();
+  const { user } = useAuth();
 
   if (statsLoading || invLoading) {
     return <AppLayout><div className="p-8">Loading dashboard...</div></AppLayout>;
@@ -50,6 +53,45 @@ export default function Dashboard() {
           </Card>
         ))}
       </div>
+
+      {user?.referralCode ? (
+        <Card className="mb-8 border-primary/20 bg-card/80">
+          <CardContent className="p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-3 rounded-xl bg-primary/10 text-primary">
+                <Users className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-display font-semibold text-lg">Invite members</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Share your referral code so new members join under you. Qualified directs with an active plan:{" "}
+                  <strong className="text-foreground">{user.qualifiedDirectReferrals ?? 0}</strong>.
+                </p>
+                <p className="text-xs text-muted-foreground mt-2 font-mono break-all">
+                  Invite link:{" "}
+                  <span className="text-foreground">
+                    {typeof window !== "undefined"
+                      ? `${window.location.origin}${import.meta.env.BASE_URL.replace(/\/$/, "")}/register?ref=${user.referralCode}`
+                      : ""}
+                  </span>
+                </p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="shrink-0"
+              onClick={() => {
+                const link = `${window.location.origin}${import.meta.env.BASE_URL.replace(/\/$/, "")}/register?ref=${user.referralCode}`;
+                void navigator.clipboard.writeText(link).then(() => toast.success("Invite link copied"));
+              }}
+            >
+              <Copy className="h-4 w-4 mr-2" />
+              Copy invite link
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="grid lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2">

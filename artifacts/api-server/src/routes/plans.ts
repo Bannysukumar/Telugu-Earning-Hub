@@ -1,5 +1,12 @@
 import { Router, type IRouter } from "express";
 import { listActivePlans, type PlanDoc } from "../lib/firestore-db.js";
+import {
+  resolvedDirectBonus,
+  resolvedBinaryPairVolume,
+  resolvedBinaryPairPayout,
+  resolvedRoiPoolPercent,
+  isStandalonePlan,
+} from "../lib/investment-mlm.js";
 import { httpErrorFromUnknown } from "../lib/errors.js";
 import { logger } from "../lib/logger.js";
 
@@ -16,6 +23,11 @@ function formatPlan(plan: PlanDoc & { id: string }) {
     maxDays: Number(d.maxDays ?? 0),
     description: d.description ?? null,
     isActive: d.isActive !== false,
+    directBonus: resolvedDirectBonus(plan),
+    binaryPairVolume: resolvedBinaryPairVolume(plan),
+    binaryPairPayout: resolvedBinaryPairPayout(plan),
+    roiPoolPercent: resolvedRoiPoolPercent(plan),
+    planKind: isStandalonePlan(plan) ? "standalone" : "mlm",
   };
 }
 

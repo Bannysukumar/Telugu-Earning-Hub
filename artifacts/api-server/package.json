@@ -4,10 +4,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "cross-env NODE_ENV=development node ./build.mjs && cross-env NODE_ENV=development node ./dev-run.mjs",
+    "dev": "cross-env NODE_ENV=development node ./dev-watch.mjs",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test src/lib/investment-mlm-binary.test.ts src/lib/level-income.test.ts src/lib/level-income-config.test.ts src/lib/investment-cap.test.ts",
+    "sponsor:backfill": "tsx ./scripts/backfill-root-sponsor.ts",
+    "company:seed": "tsx ./scripts/seed-company-permits.ts --",
+    "company:report": "tsx ./scripts/report-company-permits.ts --",
+    "firebase:reset": "tsx ./scripts/reset-firebase-project.ts --",
+    "plans:seed": "tsx ./scripts/seed-standard-plans.ts --",
+    "users:delete": "tsx ./scripts/delete-users-by-email.ts --",
+    "settings:min-withdrawal": "tsx ./scripts/set-min-withdrawal.ts --"
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",
@@ -31,6 +39,7 @@
     "esbuild": "^0.27.3",
     "esbuild-plugin-pino": "^2.3.3",
     "pino-pretty": "^13",
-    "thread-stream": "3.1.0"
+    "thread-stream": "3.1.0",
+    "tsx": "catalog:"
   }
 }

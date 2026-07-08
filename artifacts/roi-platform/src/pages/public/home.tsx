@@ -2,12 +2,14 @@ import { PublicLayout } from "@/components/layout/public-layout";
 import { Button, Card, CardContent } from "@/components/ui/core";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { ShieldCheck, TrendingUp, Zap, ArrowRight, ChevronRight } from "lucide-react";
+import { ShieldCheck, TrendingUp, Zap, ArrowRight, ChevronRight, GitBranch, Users } from "lucide-react";
 import { useGetPlans } from "@workspace/api-client-react";
 import { formatINR } from "@/lib/utils";
+import { usePlatformFeatures } from "@/hooks/use-platform-features";
 
 export default function Home() {
   const { data: plans } = useGetPlans();
+  const { binaryPlanEnabled } = usePlatformFeatures();
 
   return (
     <PublicLayout>
@@ -29,15 +31,32 @@ export default function Home() {
             transition={{ duration: 0.6 }}
             className="max-w-3xl mx-auto"
           >
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20 mb-6 text-sm font-medium">
-              <Zap className="h-4 w-4" /> Next-generation Investment Platform
-            </div>
+            {binaryPlanEnabled ? (
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20 mb-6 text-sm font-medium">
+                <Zap className="h-4 w-4" /> Smart Binary MLM — {formatINR(200)} joining
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20 mb-6 text-sm font-medium">
+                <Zap className="h-4 w-4" /> Daily ROI investment platform
+              </div>
+            )}
             <h1 className="text-5xl md:text-7xl font-display font-extrabold mb-8 leading-tight">
-              Grow Your Wealth with <br className="hidden md:block"/> 
-              <span className="text-gradient">Daily Returns</span>
+              {binaryPlanEnabled ? (
+                <>
+                  Build Two Legs, <br className="hidden md:block" />
+                  <span className="text-gradient">Earn With Clarity</span>
+                </>
+              ) : (
+                <>
+                  Grow Your Team, <br className="hidden md:block" />
+                  <span className="text-gradient">Earn With Clarity</span>
+                </>
+              )}
             </h1>
             <p className="text-lg md:text-xl text-muted-foreground mb-10 leading-relaxed">
-              Experience transparent, automated, and secure investments. Earn up to 0.5% daily ROI automatically credited to your wallet until your investment doubles.
+              {binaryPlanEnabled
+                ? `Low ${formatINR(200)} entry, ${formatINR(400)} maximum payout per cycle (2×), binary pair income, optional daily ROI for passive members, and straightforward wallet rules — all documented on our plan page.`
+                : "Choose an investment plan, fund your wallet, and track daily ROI with transparent wallet history and referral rewards."}
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link href="/register">
@@ -51,6 +70,13 @@ export default function Home() {
                 </Button>
               </Link>
             </div>
+            {binaryPlanEnabled ? (
+              <p className="mt-6 text-sm text-muted-foreground">
+                <Link href="/binary-plan" className="text-primary font-medium hover:underline">
+                  Read the full Smart Binary MLM plan (2× cap, ROI, binary pairs, withdrawals)
+                </Link>
+              </p>
+            ) : null}
           </motion.div>
         </div>
       </section>
@@ -66,11 +92,18 @@ export default function Home() {
           <div className="grid md:grid-cols-3 gap-8 relative">
             <div className="hidden md:block absolute top-1/2 left-1/6 right-1/6 h-0.5 bg-gradient-to-r from-primary/0 via-primary/30 to-primary/0 -translate-y-1/2 z-0" />
             
-            {[
-              { icon: ShieldCheck, title: "Create Account", desc: "Sign up securely in less than 2 minutes." },
-              { icon: TrendingUp, title: "Choose a Plan", desc: "Select an investment plan that fits your goals." },
-              { icon: Zap, title: "Earn Daily", desc: "Watch your wallet grow with daily ROI payouts." }
-            ].map((step, i) => (
+            {(binaryPlanEnabled
+              ? [
+                  { icon: ShieldCheck, title: "Create & fund", desc: `Activate the ${formatINR(200)} package from your wallet when you are ready — stack multiple positions anytime.` },
+                  { icon: GitBranch, title: "Two legs, team growth", desc: "Place members on your left and right. Each activation can add binary volume when directs join." },
+                  { icon: TrendingUp, title: "Earn to 2× cap", desc: `Each position has its own ${formatINR(400)} ceiling. Binary, bonuses, and ROI pause on that position when capped — activate again to start a new cycle.` },
+                ]
+              : [
+                  { icon: ShieldCheck, title: "Create & fund", desc: "Register with your sponsor code, add funds, and activate a plan from your wallet. You can hold several active plans at once." },
+                  { icon: Users, title: "Refer your team", desc: "Share your referral link and help your directs activate their own packages." },
+                  { icon: TrendingUp, title: "Track daily ROI", desc: "Every activation earns on business days until its own 2× cap or max days — same plan can be activated again anytime." },
+                ]
+            ).map((step, i) => (
               <div key={i} className="relative z-10 glass-card rounded-3xl p-8 text-center hover-lift">
                 <div className="w-16 h-16 mx-auto bg-primary/20 text-primary rounded-2xl flex items-center justify-center mb-6">
                   <step.icon className="h-8 w-8" />
@@ -89,7 +122,11 @@ export default function Home() {
           <div className="flex justify-between items-end mb-12">
             <div>
               <h2 className="text-3xl md:text-4xl font-display font-bold mb-4">Featured Plans</h2>
-              <p className="text-muted-foreground max-w-2xl">Discover our most popular investment packages.</p>
+              <p className="text-muted-foreground max-w-2xl">
+                {binaryPlanEnabled
+                  ? "Wallet-funded packages mirror the Smart Binary rules — compare amounts, daily ROI, and duration below."
+                  : "Compare investment amounts, daily ROI, and duration below."}
+              </p>
             </div>
             <Link href="/plans" className="hidden md:flex items-center text-primary font-medium hover:underline">
               View All <ChevronRight className="h-4 w-4 ml-1" />

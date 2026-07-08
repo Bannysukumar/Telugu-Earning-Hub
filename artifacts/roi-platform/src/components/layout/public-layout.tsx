@@ -4,15 +4,19 @@ import { Menu, X } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { BrandMark, SITE_NAME } from "@/lib/brand";
+import { formatINR } from "@/lib/utils";
+import { usePlatformFeatures } from "@/hooks/use-platform-features";
 
 export function PublicLayout({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
   const [location] = useLocation();
   const { user } = useAuth();
+  const { binaryPlanEnabled } = usePlatformFeatures();
 
   const navLinks = [
     { name: "Home", path: "/" },
     { name: "Plans", path: "/plans" },
+    ...(binaryPlanEnabled ? [{ name: "Smart Binary plan", path: "/binary-plan" }] : []),
     { name: "About", path: "/about" },
     { name: "Vision", path: "/vision" },
     { name: "Contact", path: "/contact" },
@@ -100,13 +104,18 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
               <BrandMark href="/" logoClassName="h-9 w-9" textClassName="text-xl" />
             </div>
             <p className="text-muted-foreground text-sm max-w-sm">
-              Empowering your financial future with steady, reliable, and transparent daily ROI investments.
+              {binaryPlanEnabled
+                ? `Smart Binary MLM with a low ${formatINR(200)} entry, 2× earning cap, optional daily ROI, and transparent wallet history.`
+                : "Investment plans with optional daily ROI, transparent wallet history, and member dashboard tools."}
             </p>
           </div>
           <div>
             <h4 className="font-bold mb-4">Platform</h4>
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li><Link href="/plans" className="hover:text-primary transition-colors">Investment Plans</Link></li>
+              {binaryPlanEnabled ? (
+                <li><Link href="/binary-plan" className="hover:text-primary transition-colors">Smart Binary plan</Link></li>
+              ) : null}
               <li><Link href="/about" className="hover:text-primary transition-colors">About Us</Link></li>
               <li><Link href="/contact" className="hover:text-primary transition-colors">Contact</Link></li>
             </ul>

@@ -41,3 +41,19 @@ export async function identitySignIn(email: string, password: string): Promise<I
   }
   return { idToken: j.idToken!, localId: j.localId!, email: j.email! };
 }
+
+export async function identityChangePassword(idToken: string, newPassword: string): Promise<IdentitySuccess> {
+  const r = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:update?key=${FIREBASE_WEB_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken, password: newPassword, returnSecureToken: true }),
+    },
+  );
+  const j = (await r.json()) as { error?: { message: string }; idToken?: string; localId?: string; email?: string };
+  if (!r.ok) {
+    throw new Error(j.error?.message ?? "password update failed");
+  }
+  return { idToken: j.idToken!, localId: j.localId!, email: j.email! };
+}

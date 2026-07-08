@@ -4,7 +4,9 @@ import {
   useCreateWithdrawal,
   useGetMe,
   useGetWithdrawalFeeSettings,
+  useListMyBankAccounts,
 } from "@workspace/api-client-react";
+import type { SavedBankAccount } from "@workspace/api-client-react";
 import {
   Card,
   Button,
@@ -18,37 +20,40 @@ import {
   TableBody,
   TableCell,
 } from "@/components/ui/core";
-import { formatINR, formatDate } from "@/lib/utils";
+import { formatINR, formatDate, cn } from "@/lib/utils";
 import { useForm, useWatch, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { Wallet, AlertCircle } from "lucide-react";
-import { useMemo } from "react";
+import { Link } from "wouter";
+import { useMemo, useEffect, useRef, useState } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
 
-function formatBankDetailsForApi(values: {
-  bankName: string;
-  ifscCode: string;
-  accountNumber: string;
-  accountHolderName: string;
-}): string {
-  return [
-    `Bank: ${values.bankName}`,
-    `IFSC: ${values.ifscCode}`,
-    `Account: ${values.accountNumber}`,
-    `Account holder: ${values.accountHolderName}`,
-  ].join("\n");
+function savedAccountSummary(a: { label?: string | null; bankName: string; accountNumber: string; ifscCode: string }): string {
+  const tail = a.accountNumber.length <= 4 ? a.accountNumber : `…${a.accountNumber.slice(-4)}`;
+  const nick = a.label?.trim();
+  return nick ? `${nick} — ${a.bankName} · ${tail}` : `${a.bankName} · ${tail} (${a.ifscCode})`;
 }
 
-const withdrawalFormSchema = z
-  .object({
-    amount: z
-      .string()
-      .trim()
-      .min(1, "Amount is required")
-      .transform((s) => Number(s.replace(/,/g, "")))
-      .pipe(z.number().finite().min(500, "Minimum withdrawal is ₹500")),
+const amountFieldSchema = (minWithdrawal: number) =>
+  z
+    .string()
+    .trim()
+    .min(1, "Amount is required")
+    .transform((s) => Number(s.replace(/,/g, "")))
+    .pipe(
+      z
+        .number()
+        .finite()
+        .min(minWithdrawal, `Minimum withdrawal is ₹${minWithdrawal.toLocaleString("en-IN")}`),
+    );
+
+const withdrawalFormSchema = (minWithdrawal: number) =>
+  z
+    .object({
+      amount: amountFieldSchema(minWithdrawal),
     bankName: z.string().trim().min(2, "Bank name is required"),
     ifscCode: z
       .string()
@@ -71,14 +76,15 @@ const withdrawalFormSchema = z
       .trim()
       .transform((s) => s.replace(/\s/g, "")),
     accountHolderName: z.string().trim().min(2, "Account holder name is required"),
+    bankAccountLabel: z.string().max(80).optional().default(""),
   })
   .refine((d) => d.accountNumber === d.confirmAccountNumber, {
     path: ["confirmAccountNumber"],
     message: "Account numbers do not match",
   });
 
-type WithdrawalFormInput = z.input<typeof withdrawalFormSchema>;
-type WithdrawalFormOutput = z.output<typeof withdrawalFormSchema>;
+type WithdrawalFormInput = z.input<ReturnType<typeof withdrawalFormSchema>>;
+type WithdrawalFormOutput = z.output<ReturnType<typeof withdrawalFormSchema>>;
 
 function parseAmountPreview(raw: unknown): number {
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
@@ -92,19 +98,42 @@ export default function Withdrawals() {
   const { data: user } = useGetMe();
   const { data: history, isLoading } = useGetMyWithdrawals();
   const { data: feeSettings } = useGetWithdrawalFeeSettings();
+  const { data: savedAccounts } = useListMyBankAccounts();
   const { mutate: requestWithdrawal, isPending } = useCreateWithdrawal();
   const queryClient = useQueryClient();
 
+  const [payoutSource, setPayoutSource] = useState<"saved" | "new">("new");
+  const [selectedSavedId, setSelectedSavedId] = useState("");
+  const [saveToProfile, setSaveToProfile] = useState(true);
+  const prefsSeeded = useRef(false);
+
+  useEffect(() => {
+    const list = savedAccounts ?? [];
+    if (!list.length) {
+      setPayoutSource("new");
+      setSelectedSavedId("");
+      return;
+    }
+    if (!prefsSeeded.current) {
+      prefsSeeded.current = true;
+      setPayoutSource("saved");
+    }
+    setSelectedSavedId((id) => (id && list.some((a: SavedBankAccount) => a.id === id) ? id : list[0]!.id));
+  }, [savedAccounts]);
+
   const feePercent = feeSettings?.withdrawalFeePercent ?? 10;
+  const minWithdrawal = feeSettings?.minWithdrawalAmount ?? 100;
+  const formSchema = useMemo(() => withdrawalFormSchema(minWithdrawal), [minWithdrawal]);
 
   const {
     register,
     handleSubmit,
     reset,
     control,
+    clearErrors,
     formState: { errors },
   } = useForm<WithdrawalFormInput, unknown, WithdrawalFormOutput>({
-    resolver: zodResolver(withdrawalFormSchema) as Resolver<WithdrawalFormInput, unknown, WithdrawalFormOutput>,
+    resolver: zodResolver(formSchema) as Resolver<WithdrawalFormInput, unknown, WithdrawalFormOutput>,
     defaultValues: {
       amount: "",
       bankName: "",
@@ -112,44 +141,91 @@ export default function Withdrawals() {
       accountNumber: "",
       confirmAccountNumber: "",
       accountHolderName: "",
+      bankAccountLabel: "",
     },
   });
+
+  useEffect(() => {
+    clearErrors();
+  }, [payoutSource, clearErrors]);
 
   const amountRaw = useWatch({ control, name: "amount", defaultValue: "" });
 
   const preview = useMemo(() => {
     const requestAmount = parseAmountPreview(amountRaw);
-    if (!Number.isFinite(requestAmount) || requestAmount < 500) {
+    if (!Number.isFinite(requestAmount) || requestAmount < minWithdrawal) {
       return { requestAmount: null as number | null, feeAmount: 0, netAmount: 0 };
     }
     const feeAmount = Math.round((requestAmount * feePercent) / 100);
     const netAmount = requestAmount - feeAmount;
     return { requestAmount, feeAmount, netAmount };
-  }, [amountRaw, feePercent]);
+  }, [amountRaw, feePercent, minWithdrawal]);
 
-  const onSubmit = (data: WithdrawalFormOutput) => {
+  const onSubmitNew = (data: WithdrawalFormOutput) => {
     if (user && data.amount > user.walletBalance) {
       toast.error("Insufficient wallet balance");
       return;
     }
-    const bankDetails = formatBankDetailsForApi({
-      bankName: data.bankName,
-      ifscCode: data.ifscCode,
-      accountNumber: data.accountNumber,
-      accountHolderName: data.accountHolderName,
-    });
     requestWithdrawal(
-      { data: { amount: data.amount, bankDetails } },
       {
-        onSuccess: () => {
+        data: {
+          amount: data.amount,
+          bankName: data.bankName,
+          ifscCode: data.ifscCode,
+          accountNumber: data.accountNumber,
+          accountHolderName: data.accountHolderName,
+          saveBankAccount: saveToProfile,
+          ...(data.bankAccountLabel?.trim() ? { bankAccountLabel: data.bankAccountLabel.trim() } : {}),
+        },
+      },
+      {
+        onSuccess: (res) => {
           toast.success("Withdrawal request submitted");
+          if (res.bankAccountSaveWarning) {
+            toast.message(res.bankAccountSaveWarning, { duration: 6000 });
+          }
           reset();
+          setSaveToProfile(true);
           queryClient.invalidateQueries();
         },
-        onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Failed to request withdrawal"),
+        onError: (err: unknown) => {
+          const msg = err instanceof Error ? err.message : "Failed to request withdrawal";
+          toast.error(msg);
+        },
       },
     );
   };
+
+  const submitSavedPayout = () => {
+    const amt = amountFieldSchema(minWithdrawal).safeParse(amountRaw);
+    if (!amt.success) {
+      toast.error(amt.error.issues[0]?.message ?? "Invalid amount");
+      return;
+    }
+    if (user && amt.data > user.walletBalance) {
+      toast.error("Insufficient wallet balance");
+      return;
+    }
+    if (!selectedSavedId) {
+      toast.error("Select a bank account");
+      return;
+    }
+    requestWithdrawal(
+      { data: { amount: amt.data, bankAccountId: selectedSavedId } },
+      {
+        onSuccess: () => {
+          toast.success("Withdrawal request submitted");
+          queryClient.invalidateQueries();
+        },
+        onError: (err: unknown) => {
+          const msg = err instanceof Error ? err.message : "Failed to request withdrawal";
+          toast.error(msg);
+        },
+      },
+    );
+  };
+
+  const hasSavedAccounts = (savedAccounts?.length ?? 0) > 0;
 
   return (
     <AppLayout>
@@ -167,7 +243,7 @@ export default function Withdrawals() {
                 <span className="font-medium">Available Balance</span>
               </div>
               <h3 className="text-4xl font-display font-bold mb-1">{formatINR(user?.walletBalance || 0)}</h3>
-              <p className="text-sm opacity-80">Minimum withdrawal: ₹500</p>
+              <p className="text-sm opacity-80">Minimum withdrawal: {formatINR(minWithdrawal)}</p>
             </div>
           </Card>
 
@@ -176,14 +252,32 @@ export default function Withdrawals() {
               <h3 className="font-bold text-lg">Request Withdrawal</h3>
             </div>
             <div className="p-6">
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (payoutSource === "saved" && hasSavedAccounts) {
+                    submitSavedPayout();
+                  } else {
+                    void handleSubmit(onSubmitNew)(e);
+                  }
+                }}
+                className="space-y-4"
+                noValidate
+              >
                 <div className="space-y-2">
                   <Label>Amount (₹)</Label>
-                  <Input type="number" inputMode="decimal" min={500} step="1" {...register("amount")} placeholder="Minimum ₹500" />
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    min={minWithdrawal}
+                    step="1"
+                    {...register("amount")}
+                    placeholder={`Minimum ${formatINR(minWithdrawal)}`}
+                  />
                   {errors.amount?.message ? <p className="text-sm text-destructive">{errors.amount.message}</p> : null}
                 </div>
 
-                {preview.requestAmount != null && preview.requestAmount >= 500 ? (
+                {preview.requestAmount != null && preview.requestAmount >= minWithdrawal ? (
                   <div className="rounded-xl border border-border bg-secondary/40 p-4 space-y-2 text-sm">
                     <p className="font-medium text-foreground">Estimate (fee is locked when you submit)</p>
                     <div className="flex justify-between gap-2">
@@ -194,6 +288,12 @@ export default function Withdrawals() {
                       <span className="text-muted-foreground">Fee ({feePercent}%)</span>
                       <span className="font-semibold tabular-nums text-amber-400">−{formatINR(preview.feeAmount)}</span>
                     </div>
+                    {feeSettings?.customWithdrawalFeePercent != null ? (
+                      <p className="text-xs text-muted-foreground">
+                        Your account uses a custom withdrawal fee (site default is{" "}
+                        {feeSettings.globalWithdrawalFeePercent ?? feePercent}%).
+                      </p>
+                    ) : null}
                     <div className="flex justify-between gap-2 pt-2 border-t border-border">
                       <span className="font-medium">You will receive (net)</span>
                       <span className="font-bold tabular-nums text-emerald-400">{formatINR(preview.netAmount)}</span>
@@ -204,49 +304,115 @@ export default function Withdrawals() {
                   </div>
                 ) : null}
 
-                <div className="pt-2 border-t border-border space-y-4">
-                  <p className="text-sm font-semibold text-foreground">Bank details</p>
-
-                  <div className="space-y-2">
-                    <Label>Bank name</Label>
-                    <Input {...register("bankName")} placeholder="e.g. State Bank of India" autoComplete="organization" />
-                    {errors.bankName?.message ? <p className="text-sm text-destructive">{errors.bankName.message}</p> : null}
+                {hasSavedAccounts ? (
+                  <div className="space-y-2 pt-2 border-t border-border">
+                    <Label className="text-foreground">Payout account</Label>
+                    <div className="flex rounded-xl border border-border p-1 bg-secondary/30 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setPayoutSource("saved")}
+                        className={cn(
+                          "flex-1 rounded-lg py-2 text-sm font-medium transition-colors",
+                          payoutSource === "saved" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        Saved account
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPayoutSource("new")}
+                        className={cn(
+                          "flex-1 rounded-lg py-2 text-sm font-medium transition-colors",
+                          payoutSource === "new" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        New details
+                      </button>
+                    </div>
                   </div>
+                ) : null}
 
+                {payoutSource === "saved" && hasSavedAccounts ? (
                   <div className="space-y-2">
-                    <Label>IFSC code</Label>
-                    <Input
-                      {...register("ifscCode")}
-                      placeholder="e.g. HDFC0001234"
-                      autoComplete="off"
-                      className="uppercase"
-                      maxLength={11}
-                    />
-                    {errors.ifscCode?.message ? <p className="text-sm text-destructive">{errors.ifscCode.message}</p> : null}
+                    <Label htmlFor="saved-bank-select">Choose bank account</Label>
+                    <select
+                      id="saved-bank-select"
+                      className="flex h-12 w-full rounded-xl border border-border bg-background/50 px-4 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/10"
+                      value={selectedSavedId}
+                      onChange={(e) => setSelectedSavedId(e.target.value)}
+                    >
+                      {(savedAccounts ?? []).map((a: SavedBankAccount) => (
+                        <option key={a.id} value={a.id}>
+                          {savedAccountSummary(a)}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">
+                      Manage saved accounts anytime from{" "}
+                      <Link href="/profile" className="text-primary hover:underline">
+                        My profile
+                      </Link>
+                      .
+                    </p>
                   </div>
+                ) : (
+                  <div className="pt-2 border-t border-border space-y-4">
+                    <p className="text-sm font-semibold text-foreground">Bank details</p>
 
-                  <div className="space-y-2">
-                    <Label>Account number</Label>
-                    <Input {...register("accountNumber")} inputMode="numeric" autoComplete="off" />
-                    {errors.accountNumber?.message ? <p className="text-sm text-destructive">{errors.accountNumber.message}</p> : null}
-                  </div>
+                    <div className="space-y-2">
+                      <Label>Optional label (e.g. &quot;My SBI&quot;)</Label>
+                      <Input {...register("bankAccountLabel")} placeholder="Nickname in your profile" autoComplete="off" />
+                      {errors.bankAccountLabel?.message ? (
+                        <p className="text-sm text-destructive">{errors.bankAccountLabel.message}</p>
+                      ) : null}
+                    </div>
 
-                  <div className="space-y-2">
-                    <Label>Confirm account number</Label>
-                    <Input {...register("confirmAccountNumber")} inputMode="numeric" autoComplete="off" />
-                    {errors.confirmAccountNumber?.message ? (
-                      <p className="text-sm text-destructive">{errors.confirmAccountNumber.message}</p>
-                    ) : null}
-                  </div>
+                    <div className="space-y-2">
+                      <Label>Bank name</Label>
+                      <Input {...register("bankName")} placeholder="e.g. State Bank of India" autoComplete="organization" />
+                      {errors.bankName?.message ? <p className="text-sm text-destructive">{errors.bankName.message}</p> : null}
+                    </div>
 
-                  <div className="space-y-2">
-                    <Label>Name of account holder</Label>
-                    <Input {...register("accountHolderName")} placeholder="As per bank records" autoComplete="name" />
-                    {errors.accountHolderName?.message ? (
-                      <p className="text-sm text-destructive">{errors.accountHolderName.message}</p>
-                    ) : null}
+                    <div className="space-y-2">
+                      <Label>IFSC code</Label>
+                      <Input
+                        {...register("ifscCode")}
+                        placeholder="e.g. HDFC0001234"
+                        autoComplete="off"
+                        className="uppercase"
+                        maxLength={11}
+                      />
+                      {errors.ifscCode?.message ? <p className="text-sm text-destructive">{errors.ifscCode.message}</p> : null}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Account number</Label>
+                      <Input {...register("accountNumber")} inputMode="numeric" autoComplete="off" />
+                      {errors.accountNumber?.message ? <p className="text-sm text-destructive">{errors.accountNumber.message}</p> : null}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Confirm account number</Label>
+                      <Input {...register("confirmAccountNumber")} inputMode="numeric" autoComplete="off" />
+                      {errors.confirmAccountNumber?.message ? (
+                        <p className="text-sm text-destructive">{errors.confirmAccountNumber.message}</p>
+                      ) : null}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Name of account holder</Label>
+                      <Input {...register("accountHolderName")} placeholder="As per bank records" autoComplete="name" />
+                      {errors.accountHolderName?.message ? (
+                        <p className="text-sm text-destructive">{errors.accountHolderName.message}</p>
+                      ) : null}
+                    </div>
+
+                    <label className="flex items-center gap-3 cursor-pointer text-sm">
+                      <Checkbox checked={saveToProfile} onCheckedChange={(v) => setSaveToProfile(v === true)} id="save-bank" />
+                      <span className="text-muted-foreground">Save these bank details to my profile after a successful request</span>
+                    </label>
                   </div>
-                </div>
+                )}
 
                 <div className="bg-amber-500/10 text-amber-400 p-3 rounded-xl flex gap-3 text-sm items-start">
                   <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />

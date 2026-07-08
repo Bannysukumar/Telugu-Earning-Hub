@@ -2,7 +2,6 @@ import { randomBytes } from "node:crypto";
 import { Router, type IRouter } from "express";
 import multer from "multer";
 import { z } from "zod";
-import { Timestamp } from "firebase-admin/firestore";
 import {
   listUsersOrdered,
   getUser,
@@ -17,13 +16,24 @@ import {
   updateWithdrawal,
   listAllInvestmentsOrdered,
   getInvestment,
-  createInvestment,
   toIso,
   updateInvestment,
   computeInvestmentIsActive,
   listIncomeHistoryAdmin,
   getWithdrawalFeePercent,
-  setWithdrawalFeePercent,
+  getWithdrawalFeePercentForUser,
+  setUserWithdrawalFeePercent,
+  clearUserWithdrawalFeePercent,
+  userWithdrawalFeePercentOverride,
+  getPeerTransferFeePercent,
+  getBinaryPlanEnabled,
+  getDirectIncomeEnabled,
+  getStandalonePlanCreationOnly,
+  getMinWithdrawalAmount,
+  getDefaultLevelIncomeOnNewPlans,
+  getLevelIncomeTiers,
+  setLevelIncomeTiers,
+  patchGlobalSettings,
   getPaymentSettings,
   updatePaymentSettings,
   listAllDepositsOrdered,
@@ -36,8 +46,83 @@ import {
   type InvestmentDoc,
 } from "../lib/firestore-db.js";
 import { requireAdmin } from "../lib/auth.js";
+import { logger } from "../lib/logger.js";
 import { uploadPublicDownloadUrl, StorageUploadError } from "../lib/storage-upload.js";
 import { investmentUserStatus } from "./investments.js";
+import {
+  createInvestmentWithMlmAtomic,
+  resolvedDirectBonus,
+  resolvedBinaryPairVolume,
+  resolvedBinaryPairPayout,
+  resolvedRoiPoolPercent,
+  resolvedLevelIncomeEnabled,
+  isStandalonePlan,
+  DEFAULT_PLAN_DIRECT_BONUS,
+  DEFAULT_BINARY_PAIR_VOLUME,
+  DEFAULT_BINARY_PAIR_PAYOUT,
+  DEFAULT_ROI_POOL_PERCENT,
+} from "../lib/investment-mlm.js";
+import {
+  MAX_LEVEL_INCOME_TIERS,
+  validateLevelIncomeTiersInput,
+  parseLevelIncomeTiers,
+} from "../lib/level-income-config.js";
+import { buildBinaryTreeJson } from "../lib/binary-tree.js";
+import { buildSponsorTreeJson } from "../lib/sponsor-tree.js";
+import { sanitizeUpiIds } from "../lib/upi.js";
+
+type AdminDirectMember = { id: string; name: string };
+
+function buildDirectLegsByReferrer(users: (UserDoc & { id: string })[]): Map<string, { left: AdminDirectMember[]; right: AdminDirectMember[] }> {
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const byReferrer = new Map<string, { left: AdminDirectMember[]; right: AdminDirectMember[] }>();
+
+  const sortByCreated = (a: AdminDirectMember, b: AdminDirectMember) =>
+    toIso(userById.get(a.id)!.createdAt).localeCompare(toIso(userById.get(b.id)!.createdAt));
+
+  for (const u of users) {
+    if (!u.referrerId) continue;
+    let slot = byReferrer.get(u.referrerId);
+    if (!slot) {
+      slot = { left: [], right: [] };
+      byReferrer.set(u.referrerId, slot);
+    }
+    const entry = { id: u.id, name: u.name };
+    if (u.binarySide === "left") slot.left.push(entry);
+    else if (u.binarySide === "right") slot.right.push(entry);
+  }
+
+  for (const slot of byReferrer.values()) {
+    slot.left.sort(sortByCreated);
+    slot.right.sort(sortByCreated);
+  }
+
+  return byReferrer;
+}
+
+function formatAdminUser(
+  user: UserDoc & { id: string },
+  userInvestments: InvestmentDoc[],
+  legsByReferrer: Map<string, { left: AdminDirectMember[]; right: AdminDirectMember[] }>,
+) {
+  const legs = legsByReferrer.get(user.id) ?? { left: [], right: [] };
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone ?? "",
+    role: user.role,
+    walletBalance: user.walletBalance,
+    isActive: user.isActive,
+    totalInvested: userInvestments.reduce((acc, inv) => acc + inv.amount, 0),
+    totalEarned: userInvestments.reduce((acc, inv) => acc + inv.totalEarned, 0),
+    activeInvestments: userInvestments.filter((inv) => inv.isActive).length,
+    createdAt: toIso(user.createdAt),
+    referralCode: user.referralCode?.trim() || null,
+    directLeft: legs.left,
+    directRight: legs.right,
+  };
+}
 
 const router: IRouter = Router();
 
@@ -94,6 +179,36 @@ function zDescriptionOptional() {
   }, z.string().optional());
 }
 
+function zOptionalFiniteNonNegative(field: string) {
+  return z.preprocess((val: unknown) => {
+    if (val === "" || val === null || val === undefined) return undefined;
+    if (typeof val === "number") return val;
+    if (typeof val === "string") {
+      const n = Number(val.replace(/,/g, "").trim());
+      return Number.isFinite(n) ? n : val;
+    }
+    return val;
+  }, z.number({ invalid_type_error: `${field} must be a number` }).finite().nonnegative().optional());
+}
+
+function zOptionalRoiPoolPercent() {
+  return z.preprocess((val: unknown) => {
+    if (val === "" || val === null || val === undefined) return undefined;
+    const n = typeof val === "number" ? val : Number(String(val).replace(/,/g, "").trim());
+    if (!Number.isFinite(n)) return val;
+    return Math.round(n);
+  }, z.number().int({ message: "ROI pool % must be a whole number" }).min(1).max(100).optional());
+}
+
+function zOptionalLevelIncomePercent() {
+  return z.preprocess((val: unknown) => {
+    if (val === "" || val === null || val === undefined) return undefined;
+    const n = typeof val === "number" ? val : Number(String(val).replace(/,/g, "").trim());
+    if (!Number.isFinite(n)) return val;
+    return Math.round(n);
+  }, z.number().int({ message: "Level income % must be a whole number" }).min(0).max(100).optional());
+}
+
 function zOptionalBoolean() {
   return z.preprocess((val: unknown) => {
     if (val === undefined || val === null) return undefined;
@@ -117,23 +232,46 @@ function sendZod400(res: import("express").Response, err: z.ZodError) {
   });
 }
 
+/** Recognize `{ data: { ... } }` wrappers (Orval-style) so MLM fields are not dropped when only nested keys are present. */
+function isPlanFieldBag(inner: object): boolean {
+  const keys = [
+    "name",
+    "amount",
+    "dailyRoi",
+    "maxReturn",
+    "maxDays",
+    "description",
+    "isActive",
+    "directBonus",
+    "binaryPairVolume",
+    "binaryPairPayout",
+    "roiPoolPercent",
+  ] as const;
+  return keys.some((k) => k in inner);
+}
+
 /** Some clients send the plan fields nested as `{ data: { name, amount, ... } }` instead of a flat body. */
 function normalizeAdminPlanBody(raw: unknown): unknown {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
   const o = raw as Record<string, unknown>;
   const inner = o.data;
-  if (
-    inner &&
-    typeof inner === "object" &&
-    !Array.isArray(inner) &&
-    ("name" in inner || "amount" in inner || "dailyRoi" in inner)
-  ) {
+  if (inner && typeof inner === "object" && !Array.isArray(inner) && isPlanFieldBag(inner)) {
     return inner;
   }
   return raw;
 }
 
 router.use(requireAdmin);
+
+/** YYYY-MM-DD in a specific IANA zone (used for "today" vs user `createdAt`). */
+function calendarDateInZone(d: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
 
 router.get("/dashboard", async (_req, res) => {
   const allUsers = await listUsersOrdered();
@@ -142,6 +280,10 @@ router.get("/dashboard", async (_req, res) => {
 
   const totalUsers = allUsers.filter((u) => u.role !== "admin").length;
   const activeUsers = allUsers.filter((u) => u.isActive && u.role !== "admin").length;
+  const todayIndia = calendarDateInZone(new Date(), "Asia/Kolkata");
+  const dailyRegistrations = allUsers.filter(
+    (u) => u.role !== "admin" && calendarDateInZone(u.createdAt.toDate(), "Asia/Kolkata") === todayIndia,
+  ).length;
   const totalInvested = allInvestments.reduce((acc, inv) => acc + inv.amount, 0);
   const totalEarned = allInvestments.reduce((acc, inv) => acc + inv.totalEarned, 0);
   const activeInvestments = allInvestments.filter((inv) => inv.isActive).length;
@@ -156,6 +298,7 @@ router.get("/dashboard", async (_req, res) => {
   res.json({
     totalUsers,
     activeUsers,
+    dailyRegistrations,
     totalInvested,
     totalEarned,
     activeInvestments,
@@ -169,25 +312,135 @@ router.get("/dashboard", async (_req, res) => {
 router.get("/users", async (_req, res) => {
   const users = await listUsersOrdered();
   const investments = await listAllInvestmentsOrdered();
+  const legsByReferrer = buildDirectLegsByReferrer(users);
 
   const result = users.map((user) => {
     const userInvestments = investments.filter((inv) => inv.userId === user.id);
-    return {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone ?? "",
-      role: user.role,
-      walletBalance: user.walletBalance,
-      isActive: user.isActive,
-      totalInvested: userInvestments.reduce((acc, inv) => acc + inv.amount, 0),
-      totalEarned: userInvestments.reduce((acc, inv) => acc + inv.totalEarned, 0),
-      activeInvestments: userInvestments.filter((inv) => inv.isActive).length,
-      createdAt: toIso(user.createdAt),
-    };
+    return formatAdminUser(user, userInvestments, legsByReferrer);
   });
 
   res.json(result);
+});
+
+router.get("/withdrawal-fees", async (_req, res) => {
+  const [users, globalWithdrawalFeePercent] = await Promise.all([
+    listUsersOrdered(),
+    getWithdrawalFeePercent(),
+  ]);
+  const rows = users
+    .filter((u) => u.role !== "admin")
+    .map((u) => {
+      const customWithdrawalFeePercent = userWithdrawalFeePercentOverride(u);
+      return {
+        userId: u.id,
+        name: u.name,
+        email: u.email,
+        customWithdrawalFeePercent,
+        effectiveWithdrawalFeePercent: customWithdrawalFeePercent ?? globalWithdrawalFeePercent,
+      };
+    });
+  res.json({ globalWithdrawalFeePercent, users: rows });
+});
+
+const setUserWithdrawalFeeSchema = z.object({
+  withdrawalFeePercent: z.number().min(0).max(100),
+});
+
+router.put("/users/:userId/withdrawal-fee", async (req, res) => {
+  const userId = req.params.userId;
+  if (!userId) {
+    res.status(400).json({ error: "Invalid user ID" });
+    return;
+  }
+  const parsed = setUserWithdrawalFeeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Enter a fee between 0 and 100." });
+    return;
+  }
+  const existing = await getUser(userId);
+  if (!existing) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  if (existing.role === "admin") {
+    res.status(400).json({ error: "Cannot set a custom withdrawal fee for admin accounts." });
+    return;
+  }
+  await setUserWithdrawalFeePercent(userId, parsed.data.withdrawalFeePercent);
+  const fees = await getWithdrawalFeePercentForUser(userId);
+  res.json({
+    userId,
+    name: existing.name,
+    email: existing.email,
+    customWithdrawalFeePercent: fees.customPercent,
+    effectiveWithdrawalFeePercent: fees.effectivePercent,
+    globalWithdrawalFeePercent: fees.globalPercent,
+  });
+});
+
+router.delete("/users/:userId/withdrawal-fee", async (req, res) => {
+  const userId = req.params.userId;
+  if (!userId) {
+    res.status(400).json({ error: "Invalid user ID" });
+    return;
+  }
+  const existing = await getUser(userId);
+  if (!existing) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  await clearUserWithdrawalFeePercent(userId);
+  const fees = await getWithdrawalFeePercentForUser(userId);
+  res.json({
+    userId,
+    name: existing.name,
+    email: existing.email,
+    customWithdrawalFeePercent: fees.customPercent,
+    effectiveWithdrawalFeePercent: fees.effectivePercent,
+    globalWithdrawalFeePercent: fees.globalPercent,
+  });
+});
+
+router.get("/users/:userId/binary-tree", async (req, res) => {
+  if (!(await getBinaryPlanEnabled())) {
+    res.status(404).json({ error: "Binary plan is disabled" });
+    return;
+  }
+  const userId = req.params.userId;
+  if (!userId) {
+    res.status(400).json({ error: "Invalid user ID" });
+    return;
+  }
+
+  const user = await getUser(userId);
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const maxRaw = Number(req.query.maxDepth);
+  const maxDepth = Math.min(8, Math.max(1, Number.isFinite(maxRaw) ? maxRaw : 5));
+  const root = await buildBinaryTreeJson(user, maxDepth);
+  res.json({ root, maxDepth });
+});
+
+router.get("/users/:userId/sponsor-tree", async (req, res) => {
+  const userId = req.params.userId;
+  if (!userId) {
+    res.status(400).json({ error: "Invalid user ID" });
+    return;
+  }
+
+  const user = await getUser(userId);
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const maxRaw = Number(req.query.maxDepth);
+  const maxDepth = Math.min(8, Math.max(1, Number.isFinite(maxRaw) ? maxRaw : 5));
+  const root = await buildSponsorTreeJson(user, maxDepth);
+  res.json({ root, maxDepth });
 });
 
 const adminUpdateUserSchema = z.object({
@@ -227,38 +480,58 @@ router.put("/users/:userId", async (req, res) => {
     return;
   }
 
+  const users = await listUsersOrdered();
   const investments = await listAllInvestmentsOrdered();
   const userInvestments = investments.filter((inv) => inv.userId === userId);
+  const legsByReferrer = buildDirectLegsByReferrer(users);
 
-  res.json({
-    id: updated.id,
-    name: updated.name,
-    email: updated.email,
-    phone: updated.phone ?? "",
-    role: updated.role,
-    walletBalance: updated.walletBalance,
-    isActive: updated.isActive,
-    totalInvested: userInvestments.reduce((acc, inv) => acc + inv.amount, 0),
-    totalEarned: userInvestments.reduce((acc, inv) => acc + inv.totalEarned, 0),
-    activeInvestments: userInvestments.filter((inv) => inv.isActive).length,
-    createdAt: toIso(updated.createdAt),
-  });
+  res.json(formatAdminUser(updated, userInvestments, legsByReferrer));
 });
+
+function planJson(p: PlanDoc & { id: string }) {
+  const levelIncomeTiers =
+    p.levelIncomeTiers && p.levelIncomeTiers.length > 0
+      ? parseLevelIncomeTiers(p.levelIncomeTiers)
+      : undefined;
+  return {
+    id: p.id,
+    name: p.name,
+    amount: p.amount,
+    dailyRoi: p.dailyRoi,
+    maxReturn: p.maxReturn,
+    maxDays: p.maxDays,
+    description: p.description,
+    isActive: p.isActive,
+    directBonus: resolvedDirectBonus(p),
+    binaryPairVolume: resolvedBinaryPairVolume(p),
+    binaryPairPayout: resolvedBinaryPairPayout(p),
+    roiPoolPercent: resolvedRoiPoolPercent(p),
+    levelIncomeEnabled: resolvedLevelIncomeEnabled(p),
+    levelIncomeTiers,
+    planKind: isStandalonePlan(p) ? "standalone" : "mlm",
+  };
+}
+
+const planLevelIncomeTierSchema = z.object({
+  level: z.number().int().min(1).max(MAX_LEVEL_INCOME_TIERS),
+  percent: z.number().int().min(0).max(100),
+});
+
+function resolvePlanLevelIncomeTiers(
+  enabled: boolean,
+  raw: { level: number; percent: number }[] | undefined,
+  globalTiers: { level: number; percent: number }[],
+): { level: number; percent: number }[] | undefined {
+  if (!enabled) return undefined;
+  const source = raw && raw.length > 0 ? raw : globalTiers;
+  const validated = validateLevelIncomeTiersInput(source);
+  if (!validated.ok) return undefined;
+  return validated.tiers;
+}
 
 router.get("/plans", async (_req, res) => {
   const plans = await listAllPlansOrdered();
-  res.json(
-    plans.map((p) => ({
-      id: p.id,
-      name: p.name,
-      amount: p.amount,
-      dailyRoi: p.dailyRoi,
-      maxReturn: p.maxReturn,
-      maxDays: p.maxDays,
-      description: p.description,
-      isActive: p.isActive,
-    })),
-  );
+  res.json(plans.map(planJson));
 });
 
 const createPlanSchema = z.object({
@@ -269,6 +542,13 @@ const createPlanSchema = z.object({
   maxDays: zOptionalIntPositive("maxDays"),
   description: zDescriptionOptional(),
   isActive: zOptionalBoolean(),
+  directBonus: zOptionalFiniteNonNegative("directBonus"),
+  binaryPairVolume: zOptionalIntPositive("binaryPairVolume"),
+  binaryPairPayout: zOptionalFiniteNonNegative("binaryPairPayout"),
+  roiPoolPercent: zOptionalRoiPoolPercent(),
+  levelIncomeEnabled: zOptionalBoolean(),
+  levelIncomeTiers: z.array(planLevelIncomeTierSchema).max(MAX_LEVEL_INCOME_TIERS).optional(),
+  planKind: z.enum(["mlm", "standalone"]).optional(),
 });
 
 router.post("/plans", async (req, res) => {
@@ -279,6 +559,21 @@ router.post("/plans", async (req, res) => {
   }
 
   const d = parsed.data;
+  const standalone = d.planKind === "standalone";
+  const levelIncomeEnabled = standalone ? false : (d.levelIncomeEnabled ?? false);
+
+  let levelIncomeTiers: { level: number; percent: number }[] | undefined;
+  if (levelIncomeEnabled) {
+    const globalTiers = await getLevelIncomeTiers();
+    const resolved = resolvePlanLevelIncomeTiers(true, d.levelIncomeTiers, globalTiers);
+    if (!resolved) {
+      const check = validateLevelIncomeTiersInput(d.levelIncomeTiers ?? globalTiers);
+      res.status(400).json({ error: check.ok ? "Invalid level income schedule for this plan." : check.error });
+      return;
+    }
+    levelIncomeTiers = resolved;
+  }
+
   const id = await createPlan({
     name: d.name,
     amount: d.amount,
@@ -287,6 +582,13 @@ router.post("/plans", async (req, res) => {
     maxDays: d.maxDays ?? 400,
     description: d.description ?? null,
     isActive: d.isActive ?? true,
+    planKind: standalone ? "standalone" : "mlm",
+    directBonus: standalone ? 0 : (d.directBonus ?? DEFAULT_PLAN_DIRECT_BONUS),
+    binaryPairVolume: standalone ? 1 : (d.binaryPairVolume ?? DEFAULT_BINARY_PAIR_VOLUME),
+    binaryPairPayout: standalone ? 0 : (d.binaryPairPayout ?? DEFAULT_BINARY_PAIR_PAYOUT),
+    roiPoolPercent: d.roiPoolPercent ?? DEFAULT_ROI_POOL_PERCENT,
+    levelIncomeEnabled,
+    ...(levelIncomeTiers ? { levelIncomeTiers } : {}),
   });
 
   const plan = await getPlan(id);
@@ -295,16 +597,7 @@ router.post("/plans", async (req, res) => {
     return;
   }
 
-  res.status(201).json({
-    id: plan.id,
-    name: plan.name,
-    amount: plan.amount,
-    dailyRoi: plan.dailyRoi,
-    maxReturn: plan.maxReturn,
-    maxDays: plan.maxDays,
-    description: plan.description,
-    isActive: plan.isActive,
-  });
+  res.status(201).json(planJson(plan));
 });
 
 const updatePlanSchema = z.object({
@@ -319,6 +612,13 @@ const updatePlanSchema = z.object({
   maxDays: zOptionalIntPositive("maxDays"),
   description: zDescriptionOptional(),
   isActive: zOptionalBoolean(),
+  directBonus: zOptionalFiniteNonNegative("directBonus"),
+  binaryPairVolume: zOptionalIntPositive("binaryPairVolume"),
+  binaryPairPayout: zOptionalFiniteNonNegative("binaryPairPayout"),
+  roiPoolPercent: zOptionalRoiPoolPercent(),
+  levelIncomeEnabled: zOptionalBoolean(),
+  levelIncomeTiers: z.array(planLevelIncomeTierSchema).max(MAX_LEVEL_INCOME_TIERS).optional(),
+  planKind: z.enum(["mlm", "standalone"]).optional(),
 });
 
 router.put("/plans/:planId", async (req, res) => {
@@ -348,6 +648,51 @@ router.put("/plans/:planId", async (req, res) => {
   if (parsed.data.maxDays !== undefined) patch.maxDays = parsed.data.maxDays;
   if (parsed.data.description !== undefined) patch.description = parsed.data.description;
   if (parsed.data.isActive !== undefined) patch.isActive = parsed.data.isActive;
+  if (parsed.data.directBonus !== undefined) patch.directBonus = parsed.data.directBonus;
+  if (parsed.data.binaryPairVolume !== undefined) patch.binaryPairVolume = parsed.data.binaryPairVolume;
+  if (parsed.data.binaryPairPayout !== undefined) patch.binaryPairPayout = parsed.data.binaryPairPayout;
+  if (parsed.data.roiPoolPercent !== undefined) patch.roiPoolPercent = parsed.data.roiPoolPercent;
+  if (parsed.data.levelIncomeEnabled !== undefined) patch.levelIncomeEnabled = parsed.data.levelIncomeEnabled;
+  if (parsed.data.planKind !== undefined) {
+    patch.planKind = parsed.data.planKind;
+    if (parsed.data.planKind === "standalone") {
+      patch.directBonus = 0;
+      patch.binaryPairVolume = 1;
+      patch.binaryPairPayout = 0;
+      patch.levelIncomeEnabled = false;
+      patch.levelIncomeTiers = [];
+    }
+  }
+
+  const nextLevelIncomeEnabled =
+    patch.levelIncomeEnabled !== undefined ? patch.levelIncomeEnabled : resolvedLevelIncomeEnabled(existing);
+
+  if (parsed.data.levelIncomeTiers !== undefined || patch.levelIncomeEnabled === false) {
+    if (!nextLevelIncomeEnabled || patch.levelIncomeEnabled === false) {
+      patch.levelIncomeTiers = [];
+    } else if (parsed.data.levelIncomeTiers !== undefined) {
+      const globalTiers = await getLevelIncomeTiers();
+      const resolved = resolvePlanLevelIncomeTiers(true, parsed.data.levelIncomeTiers, globalTiers);
+      if (!resolved) {
+        const check = validateLevelIncomeTiersInput(parsed.data.levelIncomeTiers);
+        res.status(400).json({ error: check.ok ? "Invalid level income schedule." : check.error });
+        return;
+      }
+      patch.levelIncomeTiers = resolved;
+    }
+  } else if (patch.levelIncomeEnabled === true && !existing.levelIncomeTiers?.length) {
+    const globalTiers = await getLevelIncomeTiers();
+    const resolved = resolvePlanLevelIncomeTiers(true, undefined, globalTiers);
+    if (resolved) patch.levelIncomeTiers = resolved;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    res.status(400).json({
+      error: "No plan fields to update",
+      hint: "Send a JSON object with at least one known field at the top level (not only under `data`).",
+    });
+    return;
+  }
 
   await updatePlan(planId, patch);
   const updated = await getPlan(planId);
@@ -356,16 +701,7 @@ router.put("/plans/:planId", async (req, res) => {
     return;
   }
 
-  res.json({
-    id: updated.id,
-    name: updated.name,
-    amount: updated.amount,
-    dailyRoi: updated.dailyRoi,
-    maxReturn: updated.maxReturn,
-    maxDays: updated.maxDays,
-    description: updated.description,
-    isActive: updated.isActive,
-  });
+  res.json(planJson(updated));
 });
 
 router.delete("/plans/:planId", async (req, res) => {
@@ -465,56 +801,214 @@ router.put("/withdrawals/:withdrawalId", async (req, res) => {
   });
 });
 
-const adminSettingsSchema = z.object({
-  withdrawalFeePercent: z.number().min(0).max(100),
-});
+const adminSettingsUpdateSchema = z
+  .object({
+    withdrawalFeePercent: z.number().min(0).max(100).optional(),
+    peerTransferFeePercent: z.number().min(0).max(100).optional(),
+    binaryPlanEnabled: z.boolean().optional(),
+    directIncomeEnabled: z.boolean().optional(),
+    standalonePlanCreationOnly: z.boolean().optional(),
+    minWithdrawalAmount: z.number().int().min(1).optional(),
+  })
+  .refine(
+    (d) =>
+      d.withdrawalFeePercent !== undefined ||
+      d.peerTransferFeePercent !== undefined ||
+      d.binaryPlanEnabled !== undefined ||
+      d.directIncomeEnabled !== undefined ||
+      d.standalonePlanCreationOnly !== undefined ||
+      d.minWithdrawalAmount !== undefined,
+    {
+      message: "Provide at least one setting to update",
+    },
+  );
 
 router.get("/settings", async (_req, res) => {
-  const withdrawalFeePercent = await getWithdrawalFeePercent();
-  res.json({ withdrawalFeePercent });
+  const [
+    withdrawalFeePercent,
+    peerTransferFeePercent,
+    binaryPlanEnabled,
+    directIncomeEnabled,
+    standalonePlanCreationOnly,
+    minWithdrawalAmount,
+  ] = await Promise.all([
+    getWithdrawalFeePercent(),
+    getPeerTransferFeePercent(),
+    getBinaryPlanEnabled(),
+    getDirectIncomeEnabled(),
+    getStandalonePlanCreationOnly(),
+    getMinWithdrawalAmount(),
+  ]);
+  res.json({
+    withdrawalFeePercent,
+    peerTransferFeePercent,
+    binaryPlanEnabled,
+    directIncomeEnabled,
+    standalonePlanCreationOnly,
+    minWithdrawalAmount,
+  });
 });
 
 router.put("/settings", async (req, res) => {
-  const parsed = adminSettingsSchema.safeParse(req.body);
+  const parsed = adminSettingsUpdateSchema.safeParse(normalizeAdminSettingsBody(req.body));
   if (!parsed.success) {
-    res.status(400).json({ error: "withdrawalFeePercent must be between 0 and 100" });
+    res.status(400).json({
+      error: parsed.error.issues[0]?.message || "Invalid settings payload",
+    });
     return;
   }
-  await setWithdrawalFeePercent(parsed.data.withdrawalFeePercent);
-  const withdrawalFeePercent = await getWithdrawalFeePercent();
-  res.json({ withdrawalFeePercent });
+  await patchGlobalSettings(parsed.data);
+  const [
+    withdrawalFeePercent,
+    peerTransferFeePercent,
+    binaryPlanEnabled,
+    directIncomeEnabled,
+    standalonePlanCreationOnly,
+    minWithdrawalAmount,
+  ] = await Promise.all([
+    getWithdrawalFeePercent(),
+    getPeerTransferFeePercent(),
+    getBinaryPlanEnabled(),
+    getDirectIncomeEnabled(),
+    getStandalonePlanCreationOnly(),
+    getMinWithdrawalAmount(),
+  ]);
+  res.json({
+    withdrawalFeePercent,
+    peerTransferFeePercent,
+    binaryPlanEnabled,
+    directIncomeEnabled,
+    standalonePlanCreationOnly,
+    minWithdrawalAmount,
+  });
 });
 
-router.get("/payment-settings", async (_req, res) => {
-  const s = await getPaymentSettings();
-  res.json({
+const levelIncomeTierSchema = z.object({
+  level: z.number().int().min(1).max(MAX_LEVEL_INCOME_TIERS),
+  percent: z.number().int().min(0).max(100),
+});
+
+const adminUpdateLevelIncomeSchema = z
+  .object({
+    levels: z.array(levelIncomeTierSchema).min(1).max(MAX_LEVEL_INCOME_TIERS).optional(),
+    defaultOnNewPlans: z.boolean().optional(),
+  })
+  .refine((d) => d.levels !== undefined || d.defaultOnNewPlans !== undefined, {
+    message: "Provide levels and/or defaultOnNewPlans",
+  });
+
+router.get("/level-income", async (_req, res) => {
+  const [levels, defaultOnNewPlans] = await Promise.all([getLevelIncomeTiers(), getDefaultLevelIncomeOnNewPlans()]);
+  res.json({ levels, maxLevels: MAX_LEVEL_INCOME_TIERS, defaultOnNewPlans });
+});
+
+router.put("/level-income", async (req, res) => {
+  const parsed = adminUpdateLevelIncomeSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    sendZod400(res, parsed.error);
+    return;
+  }
+  if (parsed.data.levels !== undefined) {
+    const validated = validateLevelIncomeTiersInput(parsed.data.levels);
+    if (!validated.ok) {
+      res.status(400).json({ error: validated.error });
+      return;
+    }
+    await setLevelIncomeTiers(validated.tiers);
+  }
+  if (parsed.data.defaultOnNewPlans !== undefined) {
+    await patchGlobalSettings({ defaultLevelIncomeOnNewPlans: parsed.data.defaultOnNewPlans });
+  }
+  const [levels, defaultOnNewPlans] = await Promise.all([getLevelIncomeTiers(), getDefaultLevelIncomeOnNewPlans()]);
+  res.json({ levels, maxLevels: MAX_LEVEL_INCOME_TIERS, defaultOnNewPlans });
+});
+
+function paymentSettingsToAdminJson(s: Awaited<ReturnType<typeof getPaymentSettings>>) {
+  return {
     qrCodeImageUrl: s.qrCodeImageUrl,
     isPaymentEnabled: s.isPaymentEnabled,
+    depositMethod: s.depositMethod,
+    upiIds: s.upiIds,
+    payeeName: s.payeeName,
     updatedAt: s.updatedAt,
-  });
+  };
+}
+
+/** Unwrap `{ data: { ... } }` bodies from some API clients. */
+function normalizeAdminSettingsBody(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const o = raw as Record<string, unknown>;
+  const inner = o.data;
+  if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+    return inner;
+  }
+  return raw;
+}
+
+function normalizeAdminPaymentSettingsBody(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const o = raw as Record<string, unknown>;
+  const inner = o.data;
+  if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+    return inner;
+  }
+  return raw;
+}
+
+router.get("/payment-settings", async (_req, res) => {
+  try {
+    const s = await getPaymentSettings();
+    res.json(paymentSettingsToAdminJson(s));
+  } catch (e) {
+    logger.error({ err: e }, "Failed to load payment settings");
+    res.status(500).json({ error: "Could not load payment settings." });
+  }
 });
 
 const adminPaymentSettingsPutSchema = z.object({
-  qrCodeImageUrl: z.union([z.string().url(), z.literal("")]).optional(),
+  qrCodeImageUrl: z.string().max(2048).optional(),
   isPaymentEnabled: z.boolean().optional(),
+  depositMethod: z.enum(["legacy_qr", "dynamic_upi"]).optional(),
+  upiIds: z.array(z.string().min(3).max(120)).optional(),
+  payeeName: z.string().min(1).max(80).optional(),
 });
 
 router.put("/payment-settings", async (req, res) => {
-  const parsed = adminPaymentSettingsPutSchema.safeParse(req.body);
-  if (!parsed.success || Object.keys(parsed.data).length === 0) {
-    res.status(400).json({ error: "Provide qrCodeImageUrl and/or isPaymentEnabled" });
+  const body = normalizeAdminPaymentSettingsBody(req.body);
+  const parsed = adminPaymentSettingsPutSchema.safeParse(body);
+  if (!parsed.success) {
+    sendZod400(res, parsed.error);
     return;
   }
-  const patch: { qrCodeImageUrl?: string; isPaymentEnabled?: boolean } = {};
+  if (Object.keys(parsed.data).length === 0) {
+    res.status(400).json({
+      error:
+        "Request body is empty. Send at least one of: isPaymentEnabled, depositMethod, upiIds, payeeName, qrCodeImageUrl.",
+    });
+    return;
+  }
+  const patch: {
+    qrCodeImageUrl?: string;
+    isPaymentEnabled?: boolean;
+    depositMethod?: "legacy_qr" | "dynamic_upi";
+    upiIds?: string[];
+    payeeName?: string;
+  } = {};
   if (parsed.data.qrCodeImageUrl !== undefined) patch.qrCodeImageUrl = parsed.data.qrCodeImageUrl;
   if (parsed.data.isPaymentEnabled !== undefined) patch.isPaymentEnabled = parsed.data.isPaymentEnabled;
-  await updatePaymentSettings(patch);
-  const s = await getPaymentSettings();
-  res.json({
-    qrCodeImageUrl: s.qrCodeImageUrl,
-    isPaymentEnabled: s.isPaymentEnabled,
-    updatedAt: s.updatedAt,
-  });
+  if (parsed.data.depositMethod !== undefined) patch.depositMethod = parsed.data.depositMethod;
+  if (parsed.data.upiIds !== undefined) {
+    patch.upiIds = sanitizeUpiIds(parsed.data.upiIds);
+  }
+  if (parsed.data.payeeName !== undefined) patch.payeeName = parsed.data.payeeName.trim();
+  try {
+    await updatePaymentSettings(patch);
+    const s = await getPaymentSettings();
+    res.json(paymentSettingsToAdminJson(s));
+  } catch (e) {
+    logger.error({ err: e }, "Failed to update payment settings");
+    res.status(500).json({ error: "Could not update payment settings." });
+  }
 });
 
 router.post("/payment-settings/qr", (req, res, next) => {
@@ -569,6 +1063,7 @@ router.get("/deposits", async (_req, res) => {
       transactionId: d.transactionId,
       screenshotUrl: d.screenshotUrl,
       note: d.note,
+      payeeUpiId: d.payeeUpiId ?? null,
       status: d.status,
       createdAt: toIso(d.createdAt),
       updatedAt: d.updatedAt ? toIso(d.updatedAt) : null,
@@ -647,6 +1142,7 @@ function adminInvestmentToJson(
     status: investmentUserStatus(inv),
     startDate: toIso(inv.startDate),
     lastRoiUpdate: inv.lastRoiUpdate ? toIso(inv.lastRoiUpdate) : null,
+    roiPoolPercent: inv.roiPoolPercent ?? DEFAULT_ROI_POOL_PERCENT,
   };
 }
 
@@ -730,21 +1226,12 @@ router.post("/investments", async (req, res) => {
   }
 
   const maxReturn = plan.amount * 2;
+  const planForMlm = { ...plan, maxReturn };
 
-  const invId = await createInvestment({
+  const invId = await createInvestmentWithMlmAtomic({
     userId,
-    planId: plan.id,
-    amount: plan.amount,
-    dailyRoi: plan.dailyRoi,
-    maxReturn,
-    maxDays: plan.maxDays,
-    totalEarned: 0,
-    daysCompleted: 0,
-    systemActive: true,
-    manualStatus: "active",
-    isActive: true,
-    startDate: Timestamp.now(),
-    lastRoiUpdate: null,
+    plan: planForMlm,
+    deductFromWallet: false,
   });
 
   const investment = await getInvestment(invId);
@@ -825,7 +1312,7 @@ router.get("/income-history", async (req, res) => {
   const out = [];
   for (const row of items) {
     let planName: string | null = null;
-    if (row.type !== "WITHDRAWAL" && row.investmentId && row.investmentId !== "__withdrawal__" && row.investmentId !== "__deposit__") {
+    if (row.type !== "WITHDRAWAL" && row.investmentId && row.investmentId !== "__withdrawal__" && row.investmentId !== "__deposit__" && row.investmentId !== "__peer_transfer__") {
       const inv = await getInvestment(row.investmentId);
       const p = inv ? await getPlan(inv.planId) : null;
       planName = p?.name ?? null;
