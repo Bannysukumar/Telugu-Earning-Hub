@@ -79,6 +79,15 @@ export default function Plans() {
 
   const growthActive = growthSettings?.planStatus === "active";
   const growthPlanActiveForUser = growthDash?.planStatus === "active";
+  const growthCanActivate =
+    !growthDash ||
+    growthDash.planStatus === "pending" ||
+    growthDash.planStatus === "none" ||
+    growthDash.planStatus === "inactive";
+  const growthCanReEnter =
+    Boolean(growthDash?.settings.enableReentry) &&
+    Boolean(growthDash?.canReEnter) &&
+    (growthDash?.planStatus === "expired" || growthDash?.planStatus === "completed");
   const growthAmount = growthSettings?.planAmount ?? 200;
 
   const handleInvest = () => {
@@ -202,9 +211,17 @@ export default function Plans() {
                       <Button className="w-full" variant="outline" onClick={() => (window.location.href = "/smart-growth")}>
                         View Smart Growth
                       </Button>
-                    ) : (
+                    ) : growthCanReEnter ? (
+                      <Button className="w-full" onClick={() => setSelectedPlan(SMART_GROWTH_PLAN_ID)}>
+                        Re-enter Plan
+                      </Button>
+                    ) : growthCanActivate ? (
                       <Button className="w-full" onClick={() => setSelectedPlan(SMART_GROWTH_PLAN_ID)}>
                         Invest Now
+                      </Button>
+                    ) : (
+                      <Button className="w-full" variant="outline" onClick={() => (window.location.href = "/smart-growth")}>
+                        View Smart Growth
                       </Button>
                     )
                   ) : (

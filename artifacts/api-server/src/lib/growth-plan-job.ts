@@ -50,12 +50,12 @@ function creditGrowthIncome(
   return next;
 }
 
-async function countActiveDirectsForUser(sponsorId: string): Promise<number> {
+async function countActiveDirectsForUser(sponsorId: string, planAmount: number): Promise<number> {
   const snap = await db.collection("users").where("referredBy", "==", sponsorId).get();
   let count = 0;
   for (const doc of snap.docs) {
     const gp = (doc.data() as GrowthUserDoc).growthPlan;
-    if (gp?.planStatus === "active" && Number(gp.planAmount ?? 0) === 200) count += 1;
+    if (gp?.planStatus === "active" && Number(gp.planAmount ?? 0) === planAmount) count += 1;
   }
   return count;
 }
@@ -155,7 +155,7 @@ export async function runGrowthPlanDailyJob(now: Date = new Date()): Promise<Gro
     }
 
     const updatedGp = creditGrowthIncome(gp, payout, "roi");
-    const activeDirectCount = await countActiveDirectsForUser(doc.id);
+    const activeDirectCount = await countActiveDirectsForUser(doc.id, settings.planAmount);
     const isEligibleWithdrawal =
       updatedGp.planStatus === "active" && activeDirectCount >= 2 && updatedGp.currentPlanIncome < updatedGp.earningCap;
 

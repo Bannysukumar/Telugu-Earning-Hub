@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import {
   adminActivateGrowthPlan,
+  adminInactivateGrowthPlan,
   getAdminGrowthSettings,
   type GrowthAdminSettings,
 } from "@/lib/growth-plan-api";
@@ -67,6 +68,7 @@ export default function AdminInvestments() {
   const [createPlanId, setCreatePlanId] = useState<string>("");
   const [userPickQuery, setUserPickQuery] = useState("");
   const [isActivatingGrowth, setIsActivatingGrowth] = useState(false);
+  const [isInactivatingGrowth, setIsInactivatingGrowth] = useState(false);
   const [growthSettings, setGrowthSettings] = useState<GrowthAdminSettings | null>(null);
 
   const [detailsInv, setDetailsInv] = useState<AdminInvestment | null>(null);
@@ -190,6 +192,7 @@ export default function AdminInvestments() {
           toast.success("Investment created for user.");
           setCreatePlanId("");
           invalidateInvestments();
+          invalidateUsers();
         },
         onError: (err: unknown) =>
           toast.error(err instanceof Error ? err.message : "Could not create investment"),
@@ -197,7 +200,21 @@ export default function AdminInvestments() {
     );
   };
 
-  const activateBusy = isCreating || isActivatingGrowth;
+  const onInactivateGrowth = () => {
+    if (!createUserId || !selectedHasActiveGrowth) return;
+    setIsInactivatingGrowth(true);
+    void adminInactivateGrowthPlan(createUserId)
+      .then(() => {
+        toast.success("Smart Growth Plan inactivated. User can re-enter later.");
+        invalidateUsers();
+      })
+      .catch((err: unknown) =>
+        toast.error(err instanceof Error ? err.message : "Could not inactivate Smart Growth"),
+      )
+      .finally(() => setIsInactivatingGrowth(false));
+  };
+
+  const activateBusy = isCreating || isActivatingGrowth || isInactivatingGrowth;
   const growthPlanOptionActive = growthSettings?.planStatus === "active";
 
   return (
@@ -297,20 +314,33 @@ export default function AdminInvestments() {
               </Select>
               {smartGrowthBlocked ? (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
-                  This user already has an active Smart Growth Plan. Pick a pending user (e.g. Platform Admin or
-                  adepu sukumar), or wait until the current cycle completes.
+                  This user already has an active Smart Growth Plan. Choose a pending user, or wait until the
+                  current cycle completes / is inactivated.
                 </p>
               ) : null}
             </div>
           </div>
-          <Button
-            onClick={onActivatePlan}
-            disabled={activateBusy || !createUserId || !createPlanId || smartGrowthBlocked}
-            isLoading={activateBusy}
-            className="w-full sm:w-auto"
-          >
-            Activate plan
-          </Button>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              onClick={onActivatePlan}
+              disabled={activateBusy || !createUserId || !createPlanId || smartGrowthBlocked}
+              isLoading={activateBusy && !isInactivatingGrowth}
+              className="w-full sm:w-auto"
+            >
+              Activate plan
+            </Button>
+            {selectedHasActiveGrowth ? (
+              <Button
+                variant="outline"
+                onClick={onInactivateGrowth}
+                disabled={activateBusy || !createUserId}
+                isLoading={isInactivatingGrowth}
+                className="w-full sm:w-auto"
+              >
+                Inactivate Smart Growth
+              </Button>
+            ) : null}
+          </div>
         </Card>
 
         <Card className="p-4 space-y-4">
@@ -385,6 +415,12 @@ export default function AdminInvestments() {
                 <TableBody>
                   {investments.map((inv) => {
                     const onManual = (manualStatus: "active" | "inactive") => {
+                      if (manualStatus === "active" && !inv.systemActive) {
+                        toast.error(
+                          "This investment is system-completed (2× cap reached). Manual activate cannot restart ROI.",
+                        );
+                        return;
+                      }
                       patchInvestment(
                         { investmentId: inv.id, data: { manualStatus } },
                         {
@@ -435,9 +471,18 @@ export default function AdminInvestments() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                disabled={isPatching || inv.manualStatus === "active"}
+                                disabled={
+                                  isPatching ||
+                                  inv.manualStatus === "active" ||
+                                  !inv.systemActive
+                                }
                                 className="text-xs h-8"
                                 onClick={() => onManual("active")}
+                                title={
+                                  !inv.systemActive
+                                    ? "System-completed investments cannot be reactivated"
+                                    : undefined
+                                }
                               >
                                 Activate
                               </Button>

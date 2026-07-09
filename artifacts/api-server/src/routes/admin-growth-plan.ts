@@ -6,6 +6,7 @@ import {
   getGrowthPlanSettings,
   getGrowthUser,
   GrowthPlanError,
+  inactivateGrowthPlan,
   migrateAllUsersGrowthFields,
   updateGrowthPlanSettings,
 } from "../lib/growth-plan-db.js";
@@ -21,6 +22,7 @@ router.get("/growth-plan/settings", requireAdmin, async (_req, res) => {
     dailyRoi: settings.dailyRoi,
     maxEarnings: settings.maxEarnings,
     directBonus: settings.directBonus,
+    minWithdrawal: settings.minWithdrawal,
     planStatus: settings.planStatus,
     enableReentry: settings.enableReentry,
     enableRoi: settings.enableRoi,
@@ -55,6 +57,7 @@ router.put("/growth-plan/settings", requireAdmin, async (req, res) => {
     dailyRoi: settings.dailyRoi,
     maxEarnings: settings.maxEarnings,
     directBonus: settings.directBonus,
+    minWithdrawal: settings.minWithdrawal,
     planStatus: settings.planStatus,
     enableReentry: settings.enableReentry,
     enableRoi: settings.enableRoi,
@@ -95,13 +98,43 @@ router.post("/growth-plan/activate", requireAdmin, async (req, res) => {
       const status =
         e.code === "USER_NOT_FOUND"
           ? 404
-          : e.code === "INSUFFICIENT_BALANCE" || e.code === "ALREADY_ACTIVE" || e.code === "PLAN_INACTIVE"
+          : e.code === "INSUFFICIENT_BALANCE" ||
+              e.code === "ALREADY_ACTIVE" ||
+              e.code === "PLAN_INACTIVE" ||
+              e.code === "USER_INACTIVE"
             ? 400
             : 400;
       res.status(status).json({ error: e.message, code: e.code });
       return;
     }
     const message = e instanceof Error ? e.message : "Activation failed";
+    res.status(500).json({ error: message });
+  }
+});
+
+const inactivateSchema = z.object({
+  userId: z.string().min(1),
+});
+
+router.post("/growth-plan/inactivate", requireAdmin, async (req, res) => {
+  const parsed = inactivateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const result = await inactivateGrowthPlan(parsed.data.userId);
+    res.json({
+      ...result,
+      userId: parsed.data.userId,
+    });
+  } catch (e) {
+    if (e instanceof GrowthPlanError) {
+      const status = e.code === "USER_NOT_FOUND" ? 404 : 400;
+      res.status(status).json({ error: e.message, code: e.code });
+      return;
+    }
+    const message = e instanceof Error ? e.message : "Inactivation failed";
     res.status(500).json({ error: message });
   }
 });

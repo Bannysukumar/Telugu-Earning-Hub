@@ -65,6 +65,7 @@ export type GrowthAdminSettings = {
   dailyRoi: number;
   maxEarnings: number;
   directBonus: number;
+  minWithdrawal?: number;
   planStatus: "active" | "inactive";
   enableReentry: boolean;
   enableRoi: boolean;
@@ -126,5 +127,17 @@ export function adminActivateGrowthPlan(userId: string, deductFromWallet = false
   }>("/api/admin/growth-plan/activate", {
     method: "POST",
     body: JSON.stringify({ userId, deductFromWallet }),
+  });
+}
+
+export function adminInactivateGrowthPlan(userId: string) {
+  return growthFetch<{
+    cycleId: string | null;
+    cycleNumber: number;
+    planStatus: string;
+    userId: string;
+  }>("/api/admin/growth-plan/inactivate", {
+    method: "POST",
+    body: JSON.stringify({ userId }),
   });
 }

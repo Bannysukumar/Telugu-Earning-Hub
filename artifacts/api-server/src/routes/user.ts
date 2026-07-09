@@ -432,7 +432,19 @@ router.get("/income-history", requireAuth, async (req, res) => {
   const out = [];
   for (const row of items) {
     let planName: string | null = null;
-    if (row.type !== "WITHDRAWAL" && row.investmentId && row.investmentId !== "__withdrawal__" && row.investmentId !== "__deposit__" && row.investmentId !== "__peer_transfer__") {
+    if (
+      row.investmentId === "__growth_plan__" ||
+      row.type === "GROWTH_ROI" ||
+      row.type === "GROWTH_DIRECT"
+    ) {
+      planName = "Smart Growth Plan";
+    } else if (
+      row.type !== "WITHDRAWAL" &&
+      row.investmentId &&
+      row.investmentId !== "__withdrawal__" &&
+      row.investmentId !== "__deposit__" &&
+      row.investmentId !== "__peer_transfer__"
+    ) {
       const inv = await getInvestment(row.investmentId);
       const p = inv ? await getPlan(inv.planId) : null;
       planName = p?.name ?? null;

@@ -17,14 +17,16 @@ function statusBadge(status: string) {
   if (status === "active") return <Badge variant="success">Active</Badge>;
   if (status === "completed") return <Badge variant="default">Completed</Badge>;
   if (status === "expired") return <Badge variant="default">Expired</Badge>;
-  if (status === "inactive") return <Badge variant="default">Inactive</Badge>;
+  if (status === "pending" || status === "none" || status === "inactive") {
+    return <Badge variant="outline">Not activated</Badge>;
+  }
   return <Badge variant="default">Not joined</Badge>;
 }
 
 export default function SmartGrowthPlan() {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["growth-plan-dashboard"],
     queryFn: getGrowthDashboard,
   });
@@ -51,7 +53,7 @@ export default function SmartGrowthPlan() {
     toast.success("Referral link copied");
   };
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return (
       <AppLayout>
         <div className="p-8 text-muted-foreground">Loading Smart Growth Plan...</div>
@@ -59,9 +61,27 @@ export default function SmartGrowthPlan() {
     );
   }
 
-  const canActivate = data.planStatus === "none";
+  if (isError || !data) {
+    return (
+      <AppLayout>
+        <div className="p-8 space-y-4">
+          <p className="text-destructive">
+            {error instanceof Error ? error.message : "Could not load Smart Growth Plan."}
+          </p>
+          <Button variant="outline" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4 mr-2" /> Retry
+          </Button>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  const canActivate =
+    data.planStatus === "pending" || data.planStatus === "none" || data.planStatus === "inactive";
   const canReEnter =
-    data.canReEnter && (data.planStatus === "expired" || data.planStatus === "completed");
+    Boolean(data.settings.enableReentry) &&
+    data.canReEnter &&
+    (data.planStatus === "expired" || data.planStatus === "completed");
 
   return (
     <AppLayout>
@@ -154,7 +174,7 @@ export default function SmartGrowthPlan() {
             <h3 className="font-semibold">Wallet</h3>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">Withdrawable Balance</p>
+            <p className="text-sm text-muted-foreground">Wallet Balance</p>
             <p className="text-2xl font-bold">{formatINR(data.walletBalance)}</p>
           </div>
           <div className="grid grid-cols-2 gap-3 text-sm">

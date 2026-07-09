@@ -28,11 +28,26 @@ export default function AdminGrowthPlan() {
 
   const setNum = (key: keyof GrowthAdminSettings, value: string) => {
     if (!form) return;
-    setForm({ ...form, [key]: Number(value) });
+    const n = Number(value);
+    setForm({ ...form, [key]: Number.isFinite(n) ? n : form[key] });
   };
 
   const onSave = async () => {
     if (!form) return;
+    const numericKeys: (keyof GrowthAdminSettings)[] = [
+      "planAmount",
+      "planDuration",
+      "dailyRoi",
+      "maxEarnings",
+      "directBonus",
+    ];
+    for (const key of numericKeys) {
+      const v = form[key];
+      if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
+        toast.error(`Enter a valid positive number for ${String(key)}`);
+        return;
+      }
+    }
     setSaving(true);
     try {
       await updateAdminGrowthSettings(form);

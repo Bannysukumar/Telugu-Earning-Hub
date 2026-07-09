@@ -1,9 +1,14 @@
 import { Router, type IRouter, type Request } from "express";
 import { z } from "zod";
 import {
+  bankDetailsMultilineFromSaved,
   createWithdrawalRequestAtomic,
-  listWithdrawalsByUser,
+  findSavedBankAccountById,
+  getMinWithdrawalAmount,
+  getUser,
   getWithdrawalFeePercent,
+  listWithdrawalsByUser,
+  upsertSavedBankAccountForUser,
   WithdrawalRequestError,
   toIso,
   type WithdrawalDoc,
@@ -31,8 +36,11 @@ function formatWithdrawal(w: WithdrawalDoc & { id: string }) {
 }
 
 router.get("/fee-settings", requireAuth, async (_req, res) => {
-  const withdrawalFeePercent = await getWithdrawalFeePercent();
-  res.json({ withdrawalFeePercent });
+  const [withdrawalFeePercent, minWithdrawalAmount] = await Promise.all([
+    getWithdrawalFeePercent(),
+    getMinWithdrawalAmount(),
+  ]);
+  res.json({ withdrawalFeePercent, minWithdrawalAmount });
 });
 
 router.get("/", requireAuth, async (req, res) => {
@@ -41,10 +49,34 @@ router.get("/", requireAuth, async (req, res) => {
   res.json(withdrawals.map(formatWithdrawal));
 });
 
-const createSchema = z.object({
-  amount: z.number().positive("Amount must be greater than 0"),
-  bankDetails: z.string().optional(),
-});
+const createSchema = z
+  .object({
+    amount: z.number().positive("Amount must be greater than 0"),
+    bankDetails: z.string().optional(),
+    bankName: z.string().optional(),
+    ifscCode: z.string().optional(),
+    accountNumber: z.string().optional(),
+    accountHolderName: z.string().optional(),
+    bankAccountId: z.string().optional(),
+    bankAccountLabel: z.string().optional(),
+    saveBankAccount: z.boolean().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.bankAccountId?.trim()) return;
+    if (data.bankDetails?.trim()) return;
+    const hasStructured =
+      Boolean(data.bankName?.trim()) &&
+      Boolean(data.ifscCode?.trim()) &&
+      Boolean(data.accountNumber?.trim()) &&
+      Boolean(data.accountHolderName?.trim());
+    if (!hasStructured) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Bank account details are required",
+        path: ["bankName"],
+      });
+    }
+  });
 
 router.post("/", requireAuth, async (req, res) => {
   const user = (req as Request & { user: AuthedUser }).user;
@@ -54,7 +86,17 @@ router.post("/", requireAuth, async (req, res) => {
     return;
   }
 
-  const { amount, bankDetails } = parsed.data;
+  const {
+    amount,
+    bankDetails: bankDetailsRaw,
+    bankName,
+    ifscCode,
+    accountNumber,
+    accountHolderName,
+    bankAccountId,
+    bankAccountLabel,
+    saveBankAccount,
+  } = parsed.data;
 
   const growthUser = await getGrowthUser(user.id);
   if (!growthUser) {
@@ -63,17 +105,49 @@ router.post("/", requireAuth, async (req, res) => {
   }
 
   const growthCheck = await evaluateGrowthWithdrawalEligibility(growthUser, amount);
+  const minWithdrawal = growthCheck.minWithdrawal;
   if (growthCheck.appliesGrowthRules) {
     if (!growthCheck.eligible) {
       res.status(400).json({ error: growthCheck.reason ?? "Withdrawal not allowed" });
       return;
     }
-    if (amount < growthCheck.minWithdrawal) {
-      res.status(400).json({ error: "Minimum withdrawal not reached" });
+  }
+  if (amount < minWithdrawal) {
+    res.status(400).json({ error: `Minimum withdrawal amount is ₹${minWithdrawal}` });
+    return;
+  }
+
+  let bankDetails: string | null = bankDetailsRaw?.trim() || null;
+  let bankAccountSaveWarning: string | undefined;
+
+  if (bankAccountId?.trim()) {
+    const profile = await getUser(user.id);
+    const saved = profile ? findSavedBankAccountById(profile, bankAccountId) : null;
+    if (!saved) {
+      res.status(400).json({ error: "Saved bank account not found" });
       return;
     }
-  } else if (amount < 500) {
-    res.status(400).json({ error: "Minimum withdrawal amount is ₹500" });
+    bankDetails = bankDetailsMultilineFromSaved(saved);
+  } else if (!bankDetails && bankName && ifscCode && accountNumber && accountHolderName) {
+    const structured = {
+      bankName: bankName.trim(),
+      ifscCode: ifscCode.trim(),
+      accountNumber: accountNumber.trim(),
+      accountHolderName: accountHolderName.trim(),
+      label: bankAccountLabel?.trim() || undefined,
+    };
+    bankDetails = bankDetailsMultilineFromSaved(structured);
+    if (saveBankAccount) {
+      try {
+        await upsertSavedBankAccountForUser(user.id, structured);
+      } catch (e) {
+        bankAccountSaveWarning = e instanceof Error ? e.message : "Could not save bank account";
+      }
+    }
+  }
+
+  if (!bankDetails) {
+    res.status(400).json({ error: "Bank account details are required" });
     return;
   }
 
@@ -86,7 +160,7 @@ router.post("/", requireAuth, async (req, res) => {
     const wid = await createWithdrawalRequestAtomic({
       userId: user.id,
       requestAmount: amount,
-      bankDetails: bankDetails ?? null,
+      bankDetails,
       feePercentOverride,
     });
     const list = await listWithdrawalsByUser(user.id);
@@ -95,7 +169,10 @@ router.post("/", requireAuth, async (req, res) => {
       res.status(500).json({ error: "Withdrawal not persisted" });
       return;
     }
-    res.status(201).json(formatWithdrawal(created));
+    res.status(201).json({
+      ...formatWithdrawal(created),
+      ...(bankAccountSaveWarning ? { bankAccountSaveWarning } : {}),
+    });
   } catch (e: unknown) {
     if (e instanceof WithdrawalRequestError) {
       if (e.code === "INSUFFICIENT_BALANCE") {
@@ -119,5 +196,4 @@ router.post("/", requireAuth, async (req, res) => {
   }
 });
 
-export { formatWithdrawal };
 export default router;

@@ -789,7 +789,14 @@ router.put("/withdrawals/:withdrawalId", async (req, res) => {
     return;
   }
 
-  if (parsed.data.status === "rejected" && withdrawal.status === "pending") {
+  if (withdrawal.status !== "pending") {
+    res.status(400).json({
+      error: `Withdrawal is already ${withdrawal.status}. Only pending requests can be approved or rejected.`,
+    });
+    return;
+  }
+
+  if (parsed.data.status === "rejected") {
     const u = await getUser(withdrawal.userId);
     if (u) {
       await updateUser(withdrawal.userId, {
@@ -1246,8 +1253,19 @@ router.post("/investments", async (req, res) => {
     res.status(404).json({ error: "User not found" });
     return;
   }
+  if (!targetUser.isActive) {
+    res.status(403).json({ error: "That member account is inactive." });
+    return;
+  }
+  if (targetUser.role === "admin") {
+    res.status(403).json({ error: "Cannot activate a plan for an admin account." });
+    return;
+  }
 
-  const maxReturn = plan.amount * 2;
+  const maxReturn =
+    typeof plan.maxReturn === "number" && Number.isFinite(plan.maxReturn) && plan.maxReturn > 0
+      ? plan.maxReturn
+      : plan.amount * 2;
   const planForMlm = { ...plan, maxReturn };
 
   const invId = await createInvestmentWithMlmAtomic({
@@ -1334,7 +1352,19 @@ router.get("/income-history", async (req, res) => {
   const out = [];
   for (const row of items) {
     let planName: string | null = null;
-    if (row.type !== "WITHDRAWAL" && row.investmentId && row.investmentId !== "__withdrawal__" && row.investmentId !== "__deposit__" && row.investmentId !== "__peer_transfer__") {
+    if (
+      row.investmentId === "__growth_plan__" ||
+      row.type === "GROWTH_ROI" ||
+      row.type === "GROWTH_DIRECT"
+    ) {
+      planName = "Smart Growth Plan";
+    } else if (
+      row.type !== "WITHDRAWAL" &&
+      row.investmentId &&
+      row.investmentId !== "__withdrawal__" &&
+      row.investmentId !== "__deposit__" &&
+      row.investmentId !== "__peer_transfer__"
+    ) {
       const inv = await getInvestment(row.investmentId);
       const p = inv ? await getPlan(inv.planId) : null;
       planName = p?.name ?? null;

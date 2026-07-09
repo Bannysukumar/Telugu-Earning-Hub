@@ -120,19 +120,38 @@ export default function Dashboard() {
                           <td className="px-6 py-4">
                             <div className="flex flex-col gap-1 w-full max-w-[120px]">
                               <div className="flex justify-between text-xs">
-                                <span>{Math.round((inv.totalEarned / inv.maxReturn) * 100)}%</span>
+                                <span>
+                                  {inv.maxReturn > 0
+                                    ? Math.round((inv.totalEarned / inv.maxReturn) * 100)
+                                    : 0}
+                                  %
+                                </span>
                               </div>
                               <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
-                                <div 
-                                  className="bg-primary h-full rounded-full" 
-                                  style={{ width: `${Math.min(100, (inv.totalEarned / inv.maxReturn) * 100)}%` }} 
+                                <div
+                                  className="bg-primary h-full rounded-full"
+                                  style={{
+                                    width: `${
+                                      inv.maxReturn > 0
+                                        ? Math.min(100, (inv.totalEarned / inv.maxReturn) * 100)
+                                        : 0
+                                    }%`,
+                                  }}
                                 />
                               </div>
                             </div>
                           </td>
                           <td className="px-6 py-4">
-                            <Badge variant={inv.isActive ? "success" : "default"}>
-                              {inv.isActive ? "Active" : "Completed"}
+                            <Badge
+                              variant={
+                                inv.status === "active" || inv.isActive ? "success" : "default"
+                              }
+                            >
+                              {inv.status === "manually_stopped"
+                                ? "Paused"
+                                : inv.status === "completed" || !inv.isActive
+                                  ? "Completed"
+                                  : "Active"}
                             </Badge>
                           </td>
                         </tr>

@@ -31,7 +31,7 @@ export default function Investments() {
       {investments?.length === 0 ? (
         <Card className="p-16 text-center border-dashed">
           <Target className="h-16 w-16 mx-auto mb-4 text-muted-foreground/50" />
-          <h3 className="text-xl font-bold mb-2">No active investments</h3>
+          <h3 className="text-xl font-bold mb-2">No investments yet</h3>
           <p className="text-muted-foreground mb-6">Start earning daily ROI by investing in a plan today.</p>
           <Link href="/plans"><Button>Browse Plans</Button></Link>
         </Card>

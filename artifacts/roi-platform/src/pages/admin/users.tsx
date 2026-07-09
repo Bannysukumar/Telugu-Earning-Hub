@@ -65,26 +65,40 @@ export default function AdminUsers() {
 
   const handleUpdate = () => {
     if (!editingUser) return;
-    updateUser({ 
-      userId: editingUser.id, 
-      data: { walletBalance: Number(walletBal) } 
-    }, {
-      onSuccess: () => {
-        toast.success("User updated");
-        queryClient.invalidateQueries();
-        setEditingUser(null);
+    const balance = Number(walletBal);
+    if (!Number.isFinite(balance) || balance < 0) {
+      toast.error("Enter a valid wallet balance (0 or more)");
+      return;
+    }
+    updateUser(
+      {
+        userId: editingUser.id,
+        data: { walletBalance: balance },
       },
-      onError: (err: any) => toast.error(err.message)
-    });
+      {
+        onSuccess: () => {
+          toast.success("User updated");
+          queryClient.invalidateQueries();
+          setEditingUser(null);
+        },
+        onError: (err: unknown) =>
+          toast.error(err instanceof Error ? err.message : "Update failed"),
+      },
+    );
   };
 
   const toggleStatus = (u: AdminUser) => {
-    updateUser({ userId: u.id, data: { isActive: !u.isActive } }, {
-      onSuccess: () => {
-        toast.success(`User ${!u.isActive ? 'activated' : 'deactivated'}`);
-        queryClient.invalidateQueries();
-      }
-    });
+    updateUser(
+      { userId: u.id, data: { isActive: !u.isActive } },
+      {
+        onSuccess: () => {
+          toast.success(`User ${!u.isActive ? "activated" : "deactivated"}`);
+          queryClient.invalidateQueries();
+        },
+        onError: (err: unknown) =>
+          toast.error(err instanceof Error ? err.message : "Status update failed"),
+      },
+    );
   };
 
   return (
@@ -178,7 +192,7 @@ export default function AdminUsers() {
               })}
               {filteredUsers.length === 0 && !isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={12} className="text-center p-8 text-muted-foreground">
+                  <TableCell colSpan={binaryPlanEnabled ? 12 : 10} className="text-center p-8 text-muted-foreground">
                     No users match that search.
                   </TableCell>
                 </TableRow>

@@ -190,12 +190,19 @@ export async function getGrowthUser(uid: string): Promise<(GrowthUserDoc & { id:
   return { id: snap.id, ...(snap.data() as GrowthUserDoc) };
 }
 
-export async function countActiveGrowthDirects(sponsorId: string): Promise<number> {
+export async function countActiveGrowthDirects(
+  sponsorId: string,
+  planAmount?: number,
+): Promise<number> {
+  const amount =
+    typeof planAmount === "number" && Number.isFinite(planAmount)
+      ? planAmount
+      : (await getGrowthPlanSettings()).planAmount;
   const snap = await db.collection("users").where("referredBy", "==", sponsorId).get();
   let count = 0;
   for (const doc of snap.docs) {
     const gp = (doc.data() as GrowthUserDoc).growthPlan;
-    if (gp?.planStatus === "active" && Number(gp.planAmount ?? 0) === GROWTH_PLAN_DEFAULTS.planAmount) count += 1;
+    if (gp?.planStatus === "active" && Number(gp.planAmount ?? 0) === amount) count += 1;
   }
   return count;
 }
@@ -281,7 +288,12 @@ export async function evaluateGrowthWithdrawalEligibility(
   };
 }
 
-async function refreshSponsorDirectCount(tx: Transaction, sponsorId: string): Promise<void> {
+async function refreshSponsorDirectCount(
+  tx: Transaction,
+  sponsorId: string,
+  planAmount: number,
+  settings: GrowthPlanSettingsDoc,
+): Promise<void> {
   const sponsorRef = db.collection("users").doc(sponsorId);
   const sponsorSnap = await tx.get(sponsorRef);
   if (!sponsorSnap.exists) return;
@@ -291,11 +303,11 @@ async function refreshSponsorDirectCount(tx: Transaction, sponsorId: string): Pr
   let activeDirectCount = 0;
   for (const doc of directsSnap.docs) {
     const gp = (doc.data() as GrowthUserDoc).growthPlan;
-    if (gp?.planStatus === "active" && Number(gp.planAmount ?? 0) === GROWTH_PLAN_DEFAULTS.planAmount) {
+    if (gp?.planStatus === "active" && Number(gp.planAmount ?? 0) === planAmount) {
       activeDirectCount += 1;
     }
   }
-  const gp = normalizeGrowthPlanState(sponsor.growthPlan, GROWTH_PLAN_DEFAULTS as GrowthPlanSettingsDoc);
+  const gp = normalizeGrowthPlanState(sponsor.growthPlan, settings);
   const isEligibleWithdrawal = gp.planStatus === "active" && activeDirectCount >= 2;
   tx.update(sponsorRef, {
     growthPlan: {
@@ -447,7 +459,6 @@ export async function activateGrowthPlan(
     tx.update(userRef, {
       ...(deductFromWallet ? { walletBalance: balance - settings.planAmount } : {}),
       growthPlan: nextState,
-      ...(processReferral ? { directBonusPaid: true } : {}),
       updatedAt: FieldValue.serverTimestamp(),
     });
 
@@ -525,11 +536,59 @@ export async function activateGrowthPlan(
           note: `Direct referral bonus from ${user.name || user.email}`,
           date: now,
         });
+        tx.update(userRef, { directBonusPaid: true });
       }
     }
 
     return { cycleId: cycleRef.id, cycleNumber };
   });
+}
+
+export async function inactivateGrowthPlan(
+  userId: string,
+): Promise<{ cycleId: string | null; cycleNumber: number; planStatus: "expired" }> {
+  const settings = await getGrowthPlanSettings();
+  const user = await getGrowthUser(userId);
+  if (!user) throw new GrowthPlanError("User not found", "USER_NOT_FOUND");
+  const gp = normalizeGrowthPlanState(user.growthPlan, settings);
+  if (gp.planStatus !== "active") {
+    throw new GrowthPlanError("User does not have an active Smart Growth Plan", "NOT_ACTIVE");
+  }
+
+  const now = Timestamp.now();
+  const nextState: GrowthPlanUserState = {
+    ...gp,
+    planStatus: "expired",
+    canReEnter: true,
+    isEligibleWithdrawal: false,
+    planEndDate: now,
+  };
+
+  const batch = db.batch();
+  batch.update(db.collection("users").doc(userId), {
+    growthPlan: nextState,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  if (gp.cycleId) {
+    batch.update(db.collection("growthCycles").doc(gp.cycleId), {
+      planStatus: "expired",
+      planEndDate: now,
+      updatedAt: now,
+      completedAt: now,
+    });
+  }
+  batch.set(db.collection("incomeHistory").doc(), {
+    userId,
+    investmentId: GROWTH_INCOME_CYCLE_ID,
+    amount: 0,
+    type: "INVESTMENT",
+    planAmount: gp.planAmount,
+    dayNumber: 0,
+    note: `${settings.planName} admin inactivation · Cycle ${gp.currentCycle}`,
+    date: now,
+  });
+  await batch.commit();
+  return { cycleId: gp.cycleId, cycleNumber: gp.currentCycle, planStatus: "expired" };
 }
 
 export async function listGrowthCycles(userId: string): Promise<(GrowthCycleDoc & { id: string })[]> {
@@ -567,7 +626,10 @@ export function formatGrowthDashboard(
       : 0;
   const progressPct =
     gp.earningCap > 0 ? Math.min(100, Math.round((gp.currentPlanIncome / gp.earningCap) * 100)) : 0;
-  const activeDirects = directs.filter((d) => d.planStatus === "active").length;
+  const activeDirects = directs.filter(
+    (d) => d.planStatus === "active",
+  ).length;
+  const referralCode = (user.referralCode?.trim() || user.id).trim();
 
   return {
     settings: {
@@ -600,8 +662,8 @@ export function formatGrowthDashboard(
     canReEnter: gp.canReEnter || gp.planStatus === "expired" || gp.planStatus === "completed",
     reEntryCount: gp.reEntryCount,
     currentCycle: gp.currentCycle,
-    referralCode: user.id,
-    referralLink: `/register?ref=${user.id}`,
+    referralCode,
+    referralLink: `/register?ref=${encodeURIComponent(referralCode)}`,
     directs,
   };
 }
