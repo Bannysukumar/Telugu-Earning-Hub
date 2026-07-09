@@ -63,6 +63,9 @@ export default function Profile() {
     });
   }, [investments]);
 
+  const hasGrowthPlan =
+    growthDash != null && growthDash.planStatus !== "pending";
+
   useEffect(() => {
     if (user?.name) setName(user.name);
   }, [user?.name]);
@@ -271,7 +274,7 @@ export default function Profile() {
 
             {investmentsLoading ? (
               <p className="text-sm text-muted-foreground py-4">Loading your plans…</p>
-            ) : !sortedInvestments.length ? (
+            ) : !sortedInvestments.length && !hasGrowthPlan ? (
               <div className="rounded-xl border border-dashed border-border bg-secondary/20 p-6 text-center">
                 <Target className="h-10 w-10 mx-auto mb-3 text-muted-foreground/60" />
                 <p className="text-sm text-muted-foreground mb-3">You don&apos;t have an investment plan yet.</p>
@@ -283,6 +286,43 @@ export default function Profile() {
               </div>
             ) : (
               <ul className="space-y-5">
+                {hasGrowthPlan && growthDash ? (
+                  <li className="rounded-xl border border-border bg-secondary/20 p-4 space-y-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-semibold text-foreground">{growthDash.settings.planName}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Smart Growth · Cycle #{growthDash.currentCycle}</p>
+                      </div>
+                      <Badge variant={growthDash.planStatus === "active" ? "success" : "default"}>
+                        {growthStatusLabel(growthDash.planStatus)}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Investment</p>
+                        <p className="font-semibold tabular-nums">{formatINR(growthDash.planAmount)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Days remaining</p>
+                        <p className="font-semibold tabular-nums">
+                          {growthDash.planStatus === "active" ? growthDash.remainingDays : "—"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-xs gap-2">
+                        <span className="text-muted-foreground">Return cap (2× limit)</span>
+                        <span className="font-medium tabular-nums shrink-0">
+                          {formatINR(growthDash.currentPlanIncome)} / {formatINR(growthDash.maxEarnings)}
+                        </span>
+                      </div>
+                      <Progress value={growthDash.progressPct} className="h-2.5 bg-secondary" />
+                    </div>
+                    <Link href="/smart-growth" className="text-sm text-primary hover:underline inline-flex items-center gap-0.5">
+                      View Smart Growth <ChevronRight className="h-4 w-4" />
+                    </Link>
+                  </li>
+                ) : null}
                 {sortedInvestments.map((inv) => {
                   const daysRemaining = inv.isActive ? Math.max(0, inv.maxDays - inv.daysCompleted) : 0;
                   const capPct = capProgressPercent(inv.totalEarned, inv.maxReturn);

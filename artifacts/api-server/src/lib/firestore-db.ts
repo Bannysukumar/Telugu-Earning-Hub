@@ -1019,7 +1019,10 @@ export async function transferWalletPeerToPeer(
     }
     const from = fromSnap.data() as UserDoc;
     const to = toSnap.data() as UserDoc;
-    if (activePlanSnap.empty) {
+    const hasMlmPlan = !activePlanSnap.empty;
+    const hasGrowthPlan =
+      (from as UserDoc & { growthPlan?: { planStatus?: string } }).growthPlan?.planStatus === "active";
+    if (!hasMlmPlan && !hasGrowthPlan) {
       throw new Error("You need an active investment plan on your account before sending funds to another member.");
     }
     if (!from.isActive || !to.isActive) {
@@ -1255,7 +1258,7 @@ export async function listInvestmentsByUser(userId: string): Promise<(Investment
   return rows.sort((a, b) => toIso(a.createdAt).localeCompare(toIso(b.createdAt)));
 }
 
-/** At least one investment on the member's account with `isActive` true (ROI still running). */
+/** At least one active MLM investment or an active Smart Growth plan on the member's account. */
 export async function userHasActiveInvestment(userId: string): Promise<boolean> {
   const snap = await db
     .collection("investments")
@@ -1263,7 +1266,12 @@ export async function userHasActiveInvestment(userId: string): Promise<boolean> 
     .where("isActive", "==", true)
     .limit(1)
     .get();
-  return !snap.empty;
+  if (!snap.empty) return true;
+
+  const userSnap = await db.collection("users").doc(userId).get();
+  if (!userSnap.exists) return false;
+  const gp = (userSnap.data() as { growthPlan?: { planStatus?: string } }).growthPlan;
+  return gp?.planStatus === "active";
 }
 
 /** Investments for many users in parallel batched `in` queries (grouped by userId). */

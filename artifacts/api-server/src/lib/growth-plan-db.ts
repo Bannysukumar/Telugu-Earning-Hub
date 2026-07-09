@@ -601,6 +601,51 @@ export async function listAllGrowthCyclesOrdered(): Promise<(GrowthCycleDoc & { 
   });
 }
 
+export async function listGrowthCyclesByUserIds(
+  userIds: string[],
+): Promise<Map<string, (GrowthCycleDoc & { id: string })[]>> {
+  const uniqueIds = [...new Set(userIds.filter(Boolean))];
+  const byUser = new Map<string, (GrowthCycleDoc & { id: string })[]>();
+  if (uniqueIds.length === 0) return byUser;
+
+  for (let i = 0; i < uniqueIds.length; i += 30) {
+    const chunk = uniqueIds.slice(i, i + 30);
+    const snap = await db.collection("growthCycles").where("userId", "in", chunk).get();
+    for (const doc of snap.docs) {
+      const row = { id: doc.id, ...(doc.data() as GrowthCycleDoc) };
+      const arr = byUser.get(row.userId) ?? [];
+      arr.push(row);
+      byUser.set(row.userId, arr);
+    }
+  }
+  return byUser;
+}
+
+export function mergeMemberInvestmentStats(
+  mlmInvs: Array<{ amount: number; isActive: boolean }>,
+  user: GrowthUserDoc,
+  growthCycles: (GrowthCycleDoc & { id: string })[] = [],
+  growthSettings: GrowthPlanSettingsDoc = GROWTH_PLAN_DEFAULTS as GrowthPlanSettingsDoc,
+): {
+  hasActivatedInvestment: boolean;
+  activeInvestmentsCount: number;
+  totalInvested: number;
+} {
+  const growthTotals = growthUserInvestmentTotals(user, growthCycles, growthSettings);
+  const gp = normalizeGrowthPlanState(user.growthPlan, growthSettings);
+  const mlmActivated = mlmInvs.length > 0;
+  const growthActivated =
+    growthTotals.totalInvested > 0 ||
+    growthTotals.activeInvestments > 0 ||
+    gp.planStatus === "active";
+
+  return {
+    hasActivatedInvestment: mlmActivated || growthActivated,
+    activeInvestmentsCount: mlmInvs.filter((i) => i.isActive).length + growthTotals.activeInvestments,
+    totalInvested: mlmInvs.reduce((acc, i) => acc + i.amount, 0) + growthTotals.totalInvested,
+  };
+}
+
 export function growthUserInvestmentTotals(
   user: GrowthUserDoc,
   cycles: (GrowthCycleDoc & { id: string })[],

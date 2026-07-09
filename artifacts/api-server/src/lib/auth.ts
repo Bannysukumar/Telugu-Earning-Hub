@@ -1,6 +1,18 @@
 import type { Request, Response, NextFunction } from "express";
 import { admin } from "./firebase-admin.js";
-import { getUser, toIso, type UserDoc } from "./firestore-db.js";
+import {
+  getUser,
+  listDirectReferralsByReferrerId,
+  listInvestmentsByUserIds,
+  toIso,
+  type UserDoc,
+} from "./firestore-db.js";
+import {
+  getGrowthPlanSettings,
+  listGrowthCyclesByUserIds,
+  mergeMemberInvestmentStats,
+  type GrowthUserDoc,
+} from "./growth-plan-db.js";
 
 export const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "bannysukumar@gmail.com";
 
@@ -50,6 +62,27 @@ export async function requireCronOrAdmin(req: Request, res: Response, next: Next
   await requireAdmin(req, res, next);
 }
 
+export async function countQualifiedDirectReferrals(sponsorId: string): Promise<number> {
+  const directs = await listDirectReferralsByReferrerId(sponsorId);
+  if (directs.length === 0) return 0;
+
+  const directIds = directs.map((d) => d.id);
+  const [invByUser, growthCyclesByUser, growthSettings] = await Promise.all([
+    listInvestmentsByUserIds(directIds),
+    listGrowthCyclesByUserIds(directIds),
+    getGrowthPlanSettings(),
+  ]);
+
+  let count = 0;
+  for (const d of directs) {
+    const invs = invByUser.get(d.id) ?? [];
+    const cycles = growthCyclesByUser.get(d.id) ?? [];
+    const stats = mergeMemberInvestmentStats(invs, d as GrowthUserDoc, cycles, growthSettings);
+    if (stats.activeInvestmentsCount > 0) count += 1;
+  }
+  return count;
+}
+
 export async function formatUserResponse(user: AuthedUser) {
   let referrerName: string | null = null;
   let referrerEmail: string | null = null;
@@ -61,6 +94,8 @@ export async function formatUserResponse(user: AuthedUser) {
     }
   }
 
+  const qualifiedDirectReferrals = await countQualifiedDirectReferrals(user.id);
+
   return {
     id: user.id,
     name: user.name,
@@ -71,7 +106,7 @@ export async function formatUserResponse(user: AuthedUser) {
     isActive: user.isActive,
     createdAt: toIso(user.createdAt),
     referralCode: user.referralCode ?? null,
-    qualifiedDirectReferrals: user.qualifiedDirectReferrals ?? 0,
+    qualifiedDirectReferrals,
     referrerId: user.referrerId ?? null,
     referrerName,
     referrerEmail,

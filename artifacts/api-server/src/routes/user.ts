@@ -39,6 +39,14 @@ import { uploadPublicDownloadUrl, StorageUploadError } from "../lib/storage-uplo
 import { findReferrerByCode } from "../lib/investment-mlm.js";
 import { buildBinaryTreeJson } from "../lib/binary-tree.js";
 import { buildSponsorTreeJson } from "../lib/sponsor-tree.js";
+import {
+  getGrowthPlanSettings,
+  growthUserInvestmentTotals,
+  listGrowthCycles,
+  listGrowthCyclesByUserIds,
+  mergeMemberInvestmentStats,
+  type GrowthUserDoc,
+} from "../lib/growth-plan-db.js";
 import { buildUpiPaymentUri, pickRandomUpiId } from "../lib/upi.js";
 
 const router: IRouter = Router();
@@ -94,18 +102,33 @@ function paymentSettingsToJson(s: Awaited<ReturnType<typeof getPaymentSettings>>
 router.get("/dashboard", requireAuth, async (req, res) => {
   const user = (req as Request & { user: AuthedUser }).user;
 
-  const allInvestments = await listInvestmentsByUser(user.id);
-  const totalInvested = allInvestments.reduce((acc, inv) => acc + inv.amount, 0);
-  const totalEarned = allInvestments.reduce((acc, inv) => acc + inv.totalEarned, 0);
-  const activeInvestments = allInvestments.filter((inv) => inv.isActive).length;
-  const completedInvestments = allInvestments.filter((inv) => !inv.isActive).length;
+  const [allInvestments, withdrawals, fresh, growthCycles, growthSettings] = await Promise.all([
+    listInvestmentsByUser(user.id),
+    listWithdrawalsByUser(user.id),
+    getUser(user.id),
+    listGrowthCycles(user.id),
+    getGrowthPlanSettings(),
+  ]);
 
-  const withdrawals = await listWithdrawalsByUser(user.id);
+  const growthTotals = growthUserInvestmentTotals(
+    (fresh ?? user) as GrowthUserDoc,
+    growthCycles,
+    growthSettings,
+  );
+  const totalInvested =
+    allInvestments.reduce((acc, inv) => acc + inv.amount, 0) + growthTotals.totalInvested;
+  const totalEarned =
+    allInvestments.reduce((acc, inv) => acc + inv.totalEarned, 0) + growthTotals.totalEarned;
+  const activeInvestments =
+    allInvestments.filter((inv) => inv.isActive).length + growthTotals.activeInvestments;
+  const completedInvestments =
+    allInvestments.filter((inv) => !inv.isActive).length +
+    (growthTotals.totalInvested > 0 && growthTotals.activeInvestments === 0 ? 1 : 0);
+
   const pendingWithdrawals = withdrawals
     .filter((w) => w.status === "pending")
     .reduce((acc, w) => acc + w.requestAmount, 0);
 
-  const fresh = await getUser(user.id);
   const walletBalance = fresh ? fresh.walletBalance : 0;
 
   res.json({
@@ -458,10 +481,16 @@ router.get("/income-history", requireAuth, async (req, res) => {
 router.get("/direct-level", requireAuth, async (req, res) => {
   const user = (req as Request & { user: AuthedUser }).user;
   const directs = await listDirectReferralsByReferrerId(user.id);
-  const invByUser = await listInvestmentsByUserIds(directs.map((d) => d.id));
+  const directIds = directs.map((d) => d.id);
+  const [invByUser, growthCyclesByUser, growthSettings] = await Promise.all([
+    listInvestmentsByUserIds(directIds),
+    listGrowthCyclesByUserIds(directIds),
+    getGrowthPlanSettings(),
+  ]);
   const out = directs.map((d) => {
     const invs = invByUser.get(d.id) ?? [];
-    const activeCount = invs.filter((i) => i.isActive).length;
+    const cycles = growthCyclesByUser.get(d.id) ?? [];
+    const stats = mergeMemberInvestmentStats(invs, d as GrowthUserDoc, cycles, growthSettings);
     return {
       id: d.id,
       name: d.name,
@@ -469,9 +498,9 @@ router.get("/direct-level", requireAuth, async (req, res) => {
       referralCode: d.referralCode ?? null,
       binarySide: d.binarySide === "left" || d.binarySide === "right" ? d.binarySide : null,
       createdAt: toIso(d.createdAt),
-      hasActivatedInvestment: invs.length > 0,
-      activeInvestmentsCount: activeCount,
-      totalInvested: invs.reduce((acc, i) => acc + i.amount, 0),
+      hasActivatedInvestment: stats.hasActivatedInvestment,
+      activeInvestmentsCount: stats.activeInvestmentsCount,
+      totalInvested: stats.totalInvested,
     };
   });
   res.json({ directs: out });

@@ -10,10 +10,11 @@ import {
 import { AUTH_ME_QUERY_KEY } from "@/lib/query-keys";
 import { Card, CardContent, Button, Input, Label } from "@/components/ui/core";
 import { formatINR } from "@/lib/utils";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState } from "react";
 import { AlertCircle, SendHorizontal, UserSearch } from "lucide-react";
+import { getGrowthDashboard } from "@/lib/growth-plan-api";
 
 type DestMode = "userId" | "email" | "referral";
 
@@ -31,8 +32,14 @@ export default function TransferFunds() {
 
   const { data: feeSettings } = useGetWithdrawalFeeSettings();
   const { data: myInvestments } = useGetMyInvestments();
+  const { data: growthDash } = useQuery({
+    queryKey: ["growth-plan-dashboard"],
+    queryFn: getGrowthDashboard,
+    retry: 1,
+  });
   const peerPct = feeSettings?.peerTransferFeePercent ?? 0;
-  const hasActivePlan = myInvestments?.some((inv) => inv.isActive) ?? false;
+  const hasActivePlan =
+    (myInvestments?.some((inv) => inv.isActive) ?? false) || growthDash?.planStatus === "active";
 
   const amount = Number(amountStr.replace(/,/g, "").trim());
   const sendFee = Number.isFinite(amount) && amount >= 1 ? Math.round((amount * peerPct) / 100) : 0;

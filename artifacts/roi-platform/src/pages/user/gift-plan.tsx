@@ -11,10 +11,11 @@ import {
 import { AUTH_ME_QUERY_KEY } from "@/lib/query-keys";
 import { Card, CardContent, Button, Input, Label, Badge } from "@/components/ui/core";
 import { formatINR } from "@/lib/utils";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState } from "react";
 import { AlertCircle, Gift, UserSearch, Check } from "lucide-react";
+import { getGrowthDashboard } from "@/lib/growth-plan-api";
 
 type DestMode = "userId" | "email" | "referral";
 
@@ -24,8 +25,14 @@ export default function GiftPlan() {
   const { data: plans, isLoading } = useGetPlans();
   const { data: feeSettings } = useGetWithdrawalFeeSettings();
   const { data: myInvestments } = useGetMyInvestments();
+  const { data: growthDash } = useQuery({
+    queryKey: ["growth-plan-dashboard"],
+    queryFn: getGrowthDashboard,
+    retry: 1,
+  });
   const peerPct = feeSettings?.peerTransferFeePercent ?? 0;
-  const hasActivePlan = myInvestments?.some((inv) => inv.isActive) ?? false;
+  const hasActivePlan =
+    (myInvestments?.some((inv) => inv.isActive) ?? false) || growthDash?.planStatus === "active";
 
   const giftFeeOnPlan = (planAmount: number) =>
     peerPct > 0 && Number.isFinite(planAmount) ? Math.round((planAmount * peerPct) / 100) : 0;

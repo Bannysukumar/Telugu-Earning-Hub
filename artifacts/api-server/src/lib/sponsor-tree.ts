@@ -5,6 +5,12 @@ import {
   toIso,
   type UserDoc,
 } from "./firestore-db.js";
+import {
+  getGrowthPlanSettings,
+  listGrowthCyclesByUserIds,
+  mergeMemberInvestmentStats,
+  type GrowthUserDoc,
+} from "./growth-plan-db.js";
 
 export type SponsorTreeJson = {
   id: string;
@@ -54,15 +60,18 @@ export async function buildSponsorTreeJson(
     arr.sort(sortByCreated);
   }
 
-  const invByUser = await listInvestmentsByUserIds([...usersById.keys()]);
+  const userIds = [...usersById.keys()];
+  const [invByUser, growthCyclesByUser, growthSettings] = await Promise.all([
+    listInvestmentsByUserIds(userIds),
+    listGrowthCyclesByUserIds(userIds),
+    getGrowthPlanSettings(),
+  ]);
 
   function stats(userId: string) {
+    const u = usersById.get(userId)!;
     const invs = invByUser.get(userId) ?? [];
-    return {
-      hasActivatedInvestment: invs.length > 0,
-      activeInvestmentsCount: invs.filter((i) => i.isActive).length,
-      totalInvested: invs.reduce((acc, i) => acc + i.amount, 0),
-    };
+    const cycles = growthCyclesByUser.get(userId) ?? [];
+    return mergeMemberInvestmentStats(invs, u as GrowthUserDoc, cycles, growthSettings);
   }
 
   function assemble(userId: string, depth: number): SponsorTreeJson {
