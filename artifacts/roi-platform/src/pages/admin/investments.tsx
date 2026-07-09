@@ -188,7 +188,7 @@ export default function AdminInvestments() {
                 className="mb-2"
               />
               <Select
-                value={createUserId || undefined}
+                value={createUserId}
                 onValueChange={setCreateUserId}
                 disabled={usersLoading}
               >
@@ -216,7 +216,7 @@ export default function AdminInvestments() {
             <div className="space-y-2">
               <Label>Active plan</Label>
               <Select
-                value={createPlanId || undefined}
+                value={createPlanId}
                 onValueChange={setCreatePlanId}
                 disabled={plansLoading}
               >

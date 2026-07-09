@@ -101,7 +101,8 @@ router.post("/growth-plan/activate", requireAdmin, async (req, res) => {
       res.status(status).json({ error: e.message, code: e.code });
       return;
     }
-    throw e;
+    const message = e instanceof Error ? e.message : "Activation failed";
+    res.status(500).json({ error: message });
   }
 });
 

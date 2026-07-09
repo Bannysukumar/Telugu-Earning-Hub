@@ -2,7 +2,9 @@ import {
   FieldValue,
   Timestamp,
   type DocumentData,
+  type DocumentReference,
   type Firestore,
+  type QuerySnapshot,
   type Transaction,
 } from "firebase-admin/firestore";
 import { admin } from "./firebase-admin.js";
@@ -382,6 +384,23 @@ export async function activateGrowthPlan(
       throw new GrowthPlanError("Insufficient wallet balance", "INSUFFICIENT_BALANCE");
     }
 
+    const processReferral = Boolean(
+      user.referredBy && settings.enableReferralBonus && !user.directBonusPaid,
+    );
+    let sponsorRef: DocumentReference | null = null;
+    let sponsor: GrowthUserDoc | null = null;
+    let sponsorDirectsSnap: QuerySnapshot | null = null;
+
+    if (processReferral && user.referredBy) {
+      sponsorRef = db.collection("users").doc(user.referredBy);
+      const sponsorSnap = await tx.get(sponsorRef);
+      if (sponsorSnap.exists) {
+        sponsor = sponsorSnap.data() as GrowthUserDoc;
+      }
+      const directsQuery = db.collection("users").where("referredBy", "==", user.referredBy);
+      sponsorDirectsSnap = await tx.get(directsQuery);
+    }
+
     const now = Timestamp.now();
     const startDate = now.toDate();
     const endDate = addDaysIst(startDate, settings.planDuration);
@@ -428,6 +447,7 @@ export async function activateGrowthPlan(
     tx.update(userRef, {
       ...(deductFromWallet ? { walletBalance: balance - settings.planAmount } : {}),
       growthPlan: nextState,
+      ...(processReferral ? { directBonusPaid: true } : {}),
       updatedAt: FieldValue.serverTimestamp(),
     });
 
@@ -445,51 +465,67 @@ export async function activateGrowthPlan(
       date: now,
     });
 
-    if (user.referredBy && settings.enableReferralBonus && !user.directBonusPaid) {
-      const sponsorRef = db.collection("users").doc(user.referredBy);
-      const sponsorSnap = await tx.get(sponsorRef);
-      if (sponsorSnap.exists) {
-        const sponsor = sponsorSnap.data() as GrowthUserDoc;
-        const sponsorGp = normalizeGrowthPlanState(sponsor.growthPlan, settings);
-        let sponsorWallet = Number(sponsor.walletBalance ?? 0);
-        let updatedSponsorGp = sponsorGp;
-        let historyAmount = 0;
-        if (sponsorGp.planStatus === "active") {
-          updatedSponsorGp = creditGrowthIncome(sponsorGp, settings.directBonus, "direct");
-          const credited = updatedSponsorGp.directIncome - sponsorGp.directIncome;
-          sponsorWallet += credited;
-          historyAmount = credited;
-        }
-        tx.update(sponsorRef, {
-          walletBalance: sponsorWallet,
-          growthPlan: updatedSponsorGp,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-        if (historyAmount > 0 && sponsorGp.cycleId) {
-          tx.update(db.collection("growthCycles").doc(sponsorGp.cycleId), {
-            currentPlanIncome: updatedSponsorGp.currentPlanIncome,
-            directIncome: updatedSponsorGp.directIncome,
-            planStatus: updatedSponsorGp.planStatus,
-            updatedAt: now,
-            completedAt: updatedSponsorGp.planStatus === "completed" ? now : null,
-          });
-        }
-        if (historyAmount > 0) {
-          const bonusRef = db.collection("incomeHistory").doc();
-          tx.set(bonusRef, {
-            userId: user.referredBy,
-            investmentId: GROWTH_INCOME_CYCLE_ID,
-            amount: historyAmount,
-            type: "GROWTH_DIRECT",
-            planAmount: settings.planAmount,
-            dayNumber: 0,
-            note: `Direct referral bonus from ${user.name || user.email}`,
-            date: now,
-          });
+    if (processReferral && sponsorRef && sponsor) {
+      const sponsorGp = normalizeGrowthPlanState(sponsor.growthPlan, settings);
+      let sponsorWallet = Number(sponsor.walletBalance ?? 0);
+      let updatedSponsorGp = sponsorGp;
+      let historyAmount = 0;
+      if (sponsorGp.planStatus === "active") {
+        updatedSponsorGp = creditGrowthIncome(sponsorGp, settings.directBonus, "direct");
+        const credited = updatedSponsorGp.directIncome - sponsorGp.directIncome;
+        sponsorWallet += credited;
+        historyAmount = credited;
+      }
+
+      let activeDirectCount = 0;
+      if (sponsorDirectsSnap) {
+        for (const doc of sponsorDirectsSnap.docs) {
+          if (doc.id === userId) continue;
+          const directGp = (doc.data() as GrowthUserDoc).growthPlan;
+          if (
+            directGp?.planStatus === "active" &&
+            Number(directGp.planAmount ?? 0) === settings.planAmount
+          ) {
+            activeDirectCount += 1;
+          }
         }
       }
-      tx.update(userRef, { directBonusPaid: true });
-      if (user.referredBy) await refreshSponsorDirectCount(tx, user.referredBy);
+      activeDirectCount += 1;
+
+      updatedSponsorGp = {
+        ...updatedSponsorGp,
+        activeDirectCount,
+        isEligibleWithdrawal: updatedSponsorGp.planStatus === "active" && activeDirectCount >= 2,
+      };
+
+      tx.update(sponsorRef, {
+        walletBalance: sponsorWallet,
+        growthPlan: updatedSponsorGp,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      if (historyAmount > 0 && sponsorGp.cycleId) {
+        tx.update(db.collection("growthCycles").doc(sponsorGp.cycleId), {
+          currentPlanIncome: updatedSponsorGp.currentPlanIncome,
+          directIncome: updatedSponsorGp.directIncome,
+          planStatus: updatedSponsorGp.planStatus,
+          updatedAt: now,
+          completedAt: updatedSponsorGp.planStatus === "completed" ? now : null,
+        });
+      }
+      if (historyAmount > 0) {
+        const bonusRef = db.collection("incomeHistory").doc();
+        tx.set(bonusRef, {
+          userId: user.referredBy,
+          investmentId: GROWTH_INCOME_CYCLE_ID,
+          amount: historyAmount,
+          type: "GROWTH_DIRECT",
+          planAmount: settings.planAmount,
+          dayNumber: 0,
+          note: `Direct referral bonus from ${user.name || user.email}`,
+          date: now,
+        });
+      }
     }
 
     return { cycleId: cycleRef.id, cycleNumber };
