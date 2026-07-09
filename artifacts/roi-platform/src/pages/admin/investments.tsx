@@ -56,6 +56,10 @@ function growthStatusLabel(status?: string) {
   return "Pending";
 }
 
+function isGrowthInvestmentRow(id: string) {
+  return id.startsWith("growth:");
+}
+
 export default function AdminInvestments() {
   const qc = useQueryClient();
   const [status, setStatus] = useState<"all" | "active" | "completed">("all");
@@ -177,6 +181,7 @@ export default function AdminInvestments() {
           );
           setCreatePlanId("");
           invalidateUsers();
+          invalidateInvestments();
         })
         .catch((err: unknown) =>
           toast.error(err instanceof Error ? err.message : "Could not activate Smart Growth"),
@@ -207,6 +212,7 @@ export default function AdminInvestments() {
       .then(() => {
         toast.success("Smart Growth Plan inactivated. User can re-enter later.");
         invalidateUsers();
+        invalidateInvestments();
       })
       .catch((err: unknown) =>
         toast.error(err instanceof Error ? err.message : "Could not inactivate Smart Growth"),
@@ -414,7 +420,12 @@ export default function AdminInvestments() {
                 </TableHeader>
                 <TableBody>
                   {investments.map((inv) => {
+                    const growthRow = isGrowthInvestmentRow(inv.id);
                     const onManual = (manualStatus: "active" | "inactive") => {
+                      if (growthRow) {
+                        toast.error("Use Inactivate Smart Growth for Smart Growth cycles.");
+                        return;
+                      }
                       if (manualStatus === "active" && !inv.systemActive) {
                         toast.error(
                           "This investment is system-completed (2× cap reached). Manual activate cannot restart ROI.",
@@ -442,6 +453,11 @@ export default function AdminInvestments() {
                         <TableCell>
                           <div className="font-medium">{inv.userName}</div>
                           <div className="text-xs text-muted-foreground truncate max-w-[200px]">{inv.userEmail}</div>
+                          {growthRow ? (
+                            <Badge variant="outline" className="mt-1 text-[10px]">
+                              Smart Growth
+                            </Badge>
+                          ) : null}
                         </TableCell>
                         <TableCell className="font-bold">{formatINR(inv.amount)}</TableCell>
                         <TableCell className="text-emerald-400">{formatINR(inv.dailyRoi)}</TableCell>
@@ -472,6 +488,7 @@ export default function AdminInvestments() {
                                 size="sm"
                                 variant="outline"
                                 disabled={
+                                  growthRow ||
                                   isPatching ||
                                   inv.manualStatus === "active" ||
                                   !inv.systemActive
@@ -479,9 +496,11 @@ export default function AdminInvestments() {
                                 className="text-xs h-8"
                                 onClick={() => onManual("active")}
                                 title={
-                                  !inv.systemActive
-                                    ? "System-completed investments cannot be reactivated"
-                                    : undefined
+                                  growthRow
+                                    ? "Smart Growth cycles use the inactivate button above"
+                                    : !inv.systemActive
+                                      ? "System-completed investments cannot be reactivated"
+                                      : undefined
                                 }
                               >
                                 Activate
@@ -489,7 +508,7 @@ export default function AdminInvestments() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                disabled={isPatching || inv.manualStatus === "inactive"}
+                                disabled={growthRow || isPatching || inv.manualStatus === "inactive"}
                                 className="text-xs h-8"
                                 onClick={() => onManual("inactive")}
                               >

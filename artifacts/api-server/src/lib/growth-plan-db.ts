@@ -591,6 +591,72 @@ export async function inactivateGrowthPlan(
   return { cycleId: gp.cycleId, cycleNumber: gp.currentCycle, planStatus: "expired" };
 }
 
+export async function listAllGrowthCyclesOrdered(): Promise<(GrowthCycleDoc & { id: string })[]> {
+  const snap = await db.collection("growthCycles").get();
+  const rows = snap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as GrowthCycleDoc) }));
+  return rows.sort((a, b) => {
+    const aMs = a.planStartDate?.toMillis?.() ?? 0;
+    const bMs = b.planStartDate?.toMillis?.() ?? 0;
+    return bMs - aMs;
+  });
+}
+
+export function growthUserInvestmentTotals(
+  user: GrowthUserDoc,
+  cycles: (GrowthCycleDoc & { id: string })[],
+): { totalInvested: number; totalEarned: number; activeInvestments: number } {
+  if (cycles.length === 0) {
+    const gp = user.growthPlan;
+    if (!gp || gp.planStatus === "pending") {
+      return { totalInvested: 0, totalEarned: 0, activeInvestments: 0 };
+    }
+    return {
+      totalInvested: gp.planAmount,
+      totalEarned: gp.lifetimeIncome,
+      activeInvestments: gp.planStatus === "active" ? 1 : 0,
+    };
+  }
+  return {
+    totalInvested: cycles.reduce((acc, c) => acc + c.planAmount, 0),
+    totalEarned: user.growthPlan?.lifetimeIncome ?? cycles.reduce((acc, c) => acc + c.currentPlanIncome, 0),
+    activeInvestments: cycles.filter((c) => c.planStatus === "active").length,
+  };
+}
+
+export function growthCycleToAdminInvestmentJson(
+  cycle: GrowthCycleDoc & { id: string },
+  user: { id: string; name: string; email: string },
+  settings: GrowthPlanSettingsDoc,
+) {
+  const isActive = cycle.planStatus === "active";
+  const start = cycle.planStartDate?.toDate?.() ?? new Date();
+  const end = cycle.planEndDate?.toDate?.() ?? null;
+  const elapsedMs = (end ? Math.min(Date.now(), end.getTime()) : Date.now()) - start.getTime();
+  const daysCompleted = Math.max(0, Math.floor(elapsedMs / (24 * 60 * 60 * 1000)));
+
+  return {
+    id: `growth:${cycle.id}`,
+    userId: cycle.userId,
+    userName: user.name,
+    userEmail: user.email,
+    planId: GROWTH_INCOME_CYCLE_ID,
+    planName: `${settings.planName} · Cycle ${cycle.cycleNumber}`,
+    amount: cycle.planAmount,
+    dailyRoi: settings.dailyRoi,
+    maxReturn: cycle.earningCap,
+    totalEarned: cycle.currentPlanIncome,
+    daysCompleted,
+    maxDays: cycle.planDuration,
+    systemActive: isActive,
+    manualStatus: isActive ? ("active" as const) : ("inactive" as const),
+    isActive,
+    status: isActive ? "active" : cycle.planStatus === "completed" ? "completed" : "completed",
+    startDate: toIso(cycle.planStartDate),
+    lastRoiUpdate: null,
+    roiPoolPercent: 100,
+  };
+}
+
 export async function listGrowthCycles(userId: string): Promise<(GrowthCycleDoc & { id: string })[]> {
   const snap = await db.collection("growthCycles").where("userId", "==", userId).get();
   const rows = snap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as GrowthCycleDoc) }));

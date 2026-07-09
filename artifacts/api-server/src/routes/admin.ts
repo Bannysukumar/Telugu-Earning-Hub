@@ -70,6 +70,14 @@ import {
 import { buildBinaryTreeJson } from "../lib/binary-tree.js";
 import { buildSponsorTreeJson } from "../lib/sponsor-tree.js";
 import { sanitizeUpiIds } from "../lib/upi.js";
+import {
+  getGrowthPlanSettings,
+  growthCycleToAdminInvestmentJson,
+  growthUserInvestmentTotals,
+  listAllGrowthCyclesOrdered,
+  type GrowthCycleDoc,
+  type GrowthUserDoc,
+} from "../lib/growth-plan-db.js";
 
 type AdminDirectMember = { id: string; name: string };
 
@@ -104,6 +112,7 @@ function formatAdminUser(
   user: UserDoc & { id: string },
   userInvestments: InvestmentDoc[],
   legsByReferrer: Map<string, { left: AdminDirectMember[]; right: AdminDirectMember[] }>,
+  growthCycles: (GrowthCycleDoc & { id: string })[] = [],
 ) {
   const growth = (user as UserDoc & {
     growthPlan?: {
@@ -126,6 +135,7 @@ function formatAdminUser(
     }
   }
   const legs = legsByReferrer.get(user.id) ?? { left: [], right: [] };
+  const growthTotals = growthUserInvestmentTotals(user as GrowthUserDoc, growthCycles);
   return {
     id: user.id,
     name: user.name,
@@ -134,9 +144,12 @@ function formatAdminUser(
     role: user.role,
     walletBalance: user.walletBalance,
     isActive: user.isActive,
-    totalInvested: userInvestments.reduce((acc, inv) => acc + inv.amount, 0),
-    totalEarned: userInvestments.reduce((acc, inv) => acc + inv.totalEarned, 0),
-    activeInvestments: userInvestments.filter((inv) => inv.isActive).length,
+    totalInvested:
+      userInvestments.reduce((acc, inv) => acc + inv.amount, 0) + growthTotals.totalInvested,
+    totalEarned:
+      userInvestments.reduce((acc, inv) => acc + inv.totalEarned, 0) + growthTotals.totalEarned,
+    activeInvestments:
+      userInvestments.filter((inv) => inv.isActive).length + growthTotals.activeInvestments,
     createdAt: toIso(user.createdAt),
     referralCode: user.referralCode?.trim() || null,
     growthPlanStatus,
@@ -332,13 +345,23 @@ router.get("/dashboard", async (_req, res) => {
 });
 
 router.get("/users", async (_req, res) => {
-  const users = await listUsersOrdered();
-  const investments = await listAllInvestmentsOrdered();
+  const [users, investments, allGrowthCycles] = await Promise.all([
+    listUsersOrdered(),
+    listAllInvestmentsOrdered(),
+    listAllGrowthCyclesOrdered(),
+  ]);
   const legsByReferrer = buildDirectLegsByReferrer(users);
+  const growthCyclesByUser = new Map<string, (GrowthCycleDoc & { id: string })[]>();
+  for (const cycle of allGrowthCycles) {
+    const list = growthCyclesByUser.get(cycle.userId) ?? [];
+    list.push(cycle);
+    growthCyclesByUser.set(cycle.userId, list);
+  }
 
   const result = users.map((user) => {
     const userInvestments = investments.filter((inv) => inv.userId === user.id);
-    return formatAdminUser(user, userInvestments, legsByReferrer);
+    const userGrowthCycles = growthCyclesByUser.get(user.id) ?? [];
+    return formatAdminUser(user, userInvestments, legsByReferrer, userGrowthCycles);
   });
 
   res.json(result);
@@ -502,12 +525,16 @@ router.put("/users/:userId", async (req, res) => {
     return;
   }
 
-  const users = await listUsersOrdered();
-  const investments = await listAllInvestmentsOrdered();
+  const [users, investments, allGrowthCycles] = await Promise.all([
+    listUsersOrdered(),
+    listAllInvestmentsOrdered(),
+    listAllGrowthCyclesOrdered(),
+  ]);
   const userInvestments = investments.filter((inv) => inv.userId === userId);
   const legsByReferrer = buildDirectLegsByReferrer(users);
+  const userGrowthCycles = allGrowthCycles.filter((c) => c.userId === userId);
 
-  res.json(formatAdminUser(updated, userInvestments, legsByReferrer));
+  res.json(formatAdminUser(updated, userInvestments, legsByReferrer, userGrowthCycles));
 });
 
 function planJson(p: PlanDoc & { id: string }) {
@@ -1183,41 +1210,68 @@ router.get("/investments", async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const pageSize = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
 
-  const users = await listUsersOrdered();
+  const [users, growthSettings, allGrowthCycles] = await Promise.all([
+    listUsersOrdered(),
+    getGrowthPlanSettings(),
+    listAllGrowthCyclesOrdered(),
+  ]);
   const userMap = new Map(users.map((u) => [u.id, u]));
 
-  let results = await listAllInvestmentsOrdered();
-  results.sort((a, b) => toIso(b.createdAt).localeCompare(toIso(a.createdAt)));
+  type UnifiedRow =
+    | { kind: "mlm"; sortDate: string; inv: InvestmentDoc & { id: string } }
+    | { kind: "growth"; sortDate: string; cycle: GrowthCycleDoc & { id: string } };
 
-  if (statusFilter === "active") results = results.filter((r) => r.isActive);
-  else if (statusFilter === "completed") results = results.filter((r) => !r.isActive);
+  const unified: UnifiedRow[] = [];
 
-  if (userIdFilter) results = results.filter((r) => r.userId === userIdFilter);
-
-  if (searchRaw) {
-    results = results.filter((r) => {
-      const u = userMap.get(r.userId);
-      if (!u) {
-        return r.userId.toLowerCase().includes(searchRaw);
-      }
-      return (
-        r.userId.toLowerCase().includes(searchRaw) ||
-        (u.email && u.email.toLowerCase().includes(searchRaw)) ||
-        (u.name && u.name.toLowerCase().includes(searchRaw))
-      );
-    });
+  const mlmInvestments = await listAllInvestmentsOrdered();
+  for (const inv of mlmInvestments) {
+    unified.push({ kind: "mlm", sortDate: toIso(inv.createdAt), inv });
   }
+  for (const cycle of allGrowthCycles) {
+    unified.push({ kind: "growth", sortDate: toIso(cycle.planStartDate), cycle });
+  }
+  unified.sort((a, b) => b.sortDate.localeCompare(a.sortDate));
 
-  const total = results.length;
+  const matchesSearch = (userId: string) => {
+    if (!searchRaw) return true;
+    const u = userMap.get(userId);
+    if (!u) return userId.toLowerCase().includes(searchRaw);
+    return (
+      userId.toLowerCase().includes(searchRaw) ||
+      (u.email && u.email.toLowerCase().includes(searchRaw)) ||
+      (u.name && u.name.toLowerCase().includes(searchRaw))
+    );
+  };
+
+  let filtered = unified.filter((row) => {
+    const userId = row.kind === "mlm" ? row.inv.userId : row.cycle.userId;
+    if (userIdFilter && userId !== userIdFilter) return false;
+    if (!matchesSearch(userId)) return false;
+    if (statusFilter === "active") {
+      return row.kind === "mlm" ? row.inv.isActive : row.cycle.planStatus === "active";
+    }
+    if (statusFilter === "completed") {
+      return row.kind === "mlm" ? !row.inv.isActive : row.cycle.planStatus !== "active";
+    }
+    return true;
+  });
+
+  const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const start = (page - 1) * pageSize;
-  const pageRows = results.slice(start, start + pageSize);
+  const pageRows = filtered.slice(start, start + pageSize);
 
   const items = [];
-  for (const inv of pageRows) {
-    const u = userMap.get(inv.userId) ?? (await getUser(inv.userId));
-    const p = await getPlan(inv.planId);
-    items.push(adminInvestmentToJson(inv, u, p));
+  for (const row of pageRows) {
+    if (row.kind === "mlm") {
+      const u = userMap.get(row.inv.userId) ?? (await getUser(row.inv.userId));
+      const p = await getPlan(row.inv.planId);
+      items.push(adminInvestmentToJson(row.inv, u, p));
+      continue;
+    }
+    const u = userMap.get(row.cycle.userId) ?? (await getUser(row.cycle.userId));
+    if (!u) continue;
+    items.push(growthCycleToAdminInvestmentJson(row.cycle, u, growthSettings));
   }
 
   res.json({
@@ -1290,6 +1344,12 @@ const patchInvestmentSchema = z.object({
 
 router.patch("/investments/:investmentId", async (req, res) => {
   const { investmentId } = req.params;
+  if (investmentId.startsWith("growth:")) {
+    res.status(400).json({
+      error: "Smart Growth cycles are managed from the activate form (Inactivate Smart Growth).",
+    });
+    return;
+  }
   const parsed = patchInvestmentSchema.safeParse(req.body);
   if (!parsed.success) {
     sendZod400(res, parsed.error);
