@@ -5,6 +5,7 @@ import {
   createWithdrawalRequestAtomic,
   findSavedBankAccountById,
   getMinWithdrawalAmount,
+  getPeerTransferFeePercent,
   getUser,
   getWithdrawalFeePercent,
   listWithdrawalsByUser,
@@ -36,11 +37,25 @@ function formatWithdrawal(w: WithdrawalDoc & { id: string }) {
 }
 
 router.get("/fee-settings", requireAuth, async (_req, res) => {
-  const [withdrawalFeePercent, minWithdrawalAmount] = await Promise.all([
+  const [withdrawalFeePercent, minWithdrawalAmount, peerTransferFeePercent] = await Promise.all([
     getWithdrawalFeePercent(),
     getMinWithdrawalAmount(),
+    getPeerTransferFeePercent(),
   ]);
-  res.json({ withdrawalFeePercent, minWithdrawalAmount });
+  res.json({ withdrawalFeePercent, minWithdrawalAmount, peerTransferFeePercent });
+});
+
+router.get("/eligibility-status", requireAuth, async (req, res) => {
+  const user = (req as Request & { user: AuthedUser }).user;
+  const growthUser = await getGrowthUser(user.id);
+  if (!growthUser) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  const amountRaw = Number(req.query.amount ?? 0);
+  const amount = Number.isFinite(amountRaw) && amountRaw > 0 ? amountRaw : 0;
+  const status = await evaluateGrowthWithdrawalEligibility(growthUser, amount);
+  res.json(status);
 });
 
 router.get("/", requireAuth, async (req, res) => {

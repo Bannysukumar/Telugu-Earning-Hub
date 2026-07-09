@@ -10,6 +10,8 @@ import {
 import { admin } from "./firebase-admin.js";
 import {
   getMinWithdrawalAmount,
+  GLOBAL_SETTINGS_DOC_ID,
+  peerTransferFeePercentFromSettingsData,
   toIso,
   type UserDoc,
 } from "./firestore-db.js";
@@ -212,6 +214,13 @@ export type GrowthWithdrawalCheck = {
   eligible: boolean;
   reason: string | null;
   minWithdrawal: number;
+  walletBalance: number;
+  planStatus: string | null;
+  activeDirects: number;
+  requiredDirects: number;
+  totalDirects: number;
+  amountNeeded: number;
+  blockers: string[];
 };
 
 export async function evaluateGrowthWithdrawalEligibility(
@@ -223,69 +232,102 @@ export async function evaluateGrowthWithdrawalEligibility(
     getMinWithdrawalAmount(),
   ]);
   const gp = user.growthPlan;
+  const walletBalance = Number(user.walletBalance ?? 0);
   const participates =
     Boolean(gp && gp.planStatus !== "pending") ||
     Number(gp?.reEntryCount ?? 0) > 0 ||
     Number(gp?.currentCycle ?? 0) > 0;
 
+  const minWithdrawal = participates ? settings.minWithdrawal : globalMinWithdrawal;
+  const base = {
+    walletBalance,
+    planStatus: gp?.planStatus ?? "pending",
+    activeDirects: 0,
+    requiredDirects: 2,
+    totalDirects: 0,
+    amountNeeded: Math.max(0, minWithdrawal - walletBalance),
+    blockers: [] as string[],
+  };
+
   if (!participates) {
+    const blockers: string[] = [];
+    if (walletBalance < minWithdrawal) {
+      blockers.push(`You need ${formatInrShort(minWithdrawal - walletBalance)} more to reach the minimum withdrawal of ${formatInrShort(minWithdrawal)}`);
+    }
+    if (requestAmount > 0 && requestAmount < minWithdrawal) {
+      blockers.push(`Enter at least ${formatInrShort(minWithdrawal)} to withdraw`);
+    }
+    if (requestAmount > 0 && requestAmount > walletBalance) {
+      blockers.push("Insufficient wallet balance for this amount");
+    }
+    const eligible =
+      blockers.length === 0 &&
+      (requestAmount <= 0 ? walletBalance >= minWithdrawal : requestAmount >= minWithdrawal && requestAmount <= walletBalance);
     return {
       appliesGrowthRules: false,
-      eligible: true,
-      reason: null,
-      minWithdrawal: globalMinWithdrawal,
+      eligible,
+      reason: blockers[0] ?? null,
+      minWithdrawal,
+      ...base,
+      blockers,
     };
   }
+
+  const directs = await listGrowthDirects(user.id);
+  const activeDirects = await countActiveGrowthDirects(user.id, settings.planAmount);
+  const withDirects = { ...base, activeDirects, totalDirects: directs.length };
 
   if (!gp || gp.planStatus !== "active") {
     const reason =
       gp?.planStatus === "expired"
-        ? "Plan expired"
+        ? "Activate your plan"
         : gp?.planStatus === "completed"
-          ? "Plan completed"
-          : "Activate your plan";
+          ? "Re-enter your Smart Growth plan"
+          : "Activate your Smart Growth plan";
     return {
       appliesGrowthRules: true,
       eligible: false,
       reason,
-      minWithdrawal: globalMinWithdrawal,
+      minWithdrawal,
+      ...withDirects,
+      blockers: [reason],
     };
   }
 
-  const activeDirects = await countActiveGrowthDirects(user.id);
+  const blockers: string[] = [];
   if (activeDirects < 2) {
-    return {
-      appliesGrowthRules: true,
-      eligible: false,
-      reason: "Need 2 Active Direct Referrals",
-      minWithdrawal: globalMinWithdrawal,
-    };
+    const need = 2 - activeDirects;
+    blockers.push(
+      `You have ${activeDirects} active referral${activeDirects === 1 ? "" : "s"} — need ${need} more active Smart Growth referral${need === 1 ? "" : "s"} (2 total required)`,
+    );
+  }
+  if (walletBalance < minWithdrawal) {
+    blockers.push(`You need ${formatInrShort(minWithdrawal - walletBalance)} more in your wallet (minimum ${formatInrShort(minWithdrawal)})`);
+  }
+  const amountToCheck = requestAmount > 0 ? requestAmount : minWithdrawal;
+  if (requestAmount > 0 && requestAmount < minWithdrawal) {
+    blockers.push(`Enter at least ${formatInrShort(minWithdrawal)} to withdraw`);
+  }
+  if (amountToCheck > walletBalance) {
+    if (!blockers.some((b) => b.includes("wallet"))) {
+      blockers.push("Insufficient wallet balance for this amount");
+    }
   }
 
-  if (requestAmount < globalMinWithdrawal) {
-    return {
-      appliesGrowthRules: true,
-      eligible: false,
-      reason: "Minimum withdrawal not reached",
-      minWithdrawal: globalMinWithdrawal,
-    };
-  }
-
-  if (user.walletBalance < requestAmount) {
-    return {
-      appliesGrowthRules: true,
-      eligible: false,
-      reason: "Insufficient wallet balance",
-      minWithdrawal: globalMinWithdrawal,
-    };
-  }
-
+  const eligible = blockers.length === 0;
   return {
     appliesGrowthRules: true,
-    eligible: true,
-    reason: null,
-    minWithdrawal: globalMinWithdrawal,
+    eligible,
+    reason: blockers[0] ?? null,
+    minWithdrawal,
+    ...withDirects,
+    amountNeeded: Math.max(0, minWithdrawal - walletBalance),
+    blockers,
   };
+}
+
+function formatInrShort(amount: number): string {
+  return `₹${Math.max(0, Math.round(amount)).toLocaleString("en-IN")}`;
 }
 
 async function refreshSponsorDirectCount(
@@ -356,6 +398,8 @@ export class GrowthPlanError extends Error {
 export type ActivateGrowthPlanOptions = {
   /** When false (admin gift), wallet is not deducted. Default true. */
   deductFromWallet?: boolean;
+  /** When set with a different uid than `userId`, debits this wallet instead (sponsored activation). */
+  walletDebitUserId?: string;
 };
 
 export async function activateGrowthPlan(
@@ -363,6 +407,8 @@ export async function activateGrowthPlan(
   options: ActivateGrowthPlanOptions = {},
 ): Promise<{ cycleId: string; cycleNumber: number }> {
   const deductFromWallet = options.deductFromWallet !== false;
+  const debitUserId = options.walletDebitUserId ?? userId;
+  const isGift = deductFromWallet && debitUserId !== userId;
   const settings = await getGrowthPlanSettings();
   if (settings.planStatus !== "active") {
     throw new GrowthPlanError("Smart Growth Plan is not active", "PLAN_INACTIVE");
@@ -370,10 +416,23 @@ export async function activateGrowthPlan(
 
   return db.runTransaction(async (tx) => {
     const userRef = db.collection("users").doc(userId);
+    const debitRef = db.collection("users").doc(debitUserId);
+    const settingsRef = db.collection("settings").doc(GLOBAL_SETTINGS_DOC_ID);
     const userSnap = await tx.get(userRef);
     if (!userSnap.exists) throw new GrowthPlanError("User not found", "USER_NOT_FOUND");
     const user = userSnap.data() as GrowthUserDoc;
     if (!user.isActive) throw new GrowthPlanError("Account deactivated", "USER_INACTIVE");
+
+    let payerUser: GrowthUserDoc | null = null;
+    let giftFeeAmount = 0;
+    if (isGift) {
+      const [payerSnap, settingsSnap] = await Promise.all([tx.get(debitRef), tx.get(settingsRef)]);
+      if (!payerSnap.exists) throw new GrowthPlanError("Payer not found", "USER_NOT_FOUND");
+      payerUser = payerSnap.data() as GrowthUserDoc;
+      if (!payerUser.isActive) throw new GrowthPlanError("Payer account deactivated", "USER_INACTIVE");
+      const giftFeePct = peerTransferFeePercentFromSettingsData(settingsSnap.data());
+      giftFeeAmount = giftFeePct > 0 ? Math.round((settings.planAmount * giftFeePct) / 100) : 0;
+    }
 
     const gp = normalizeGrowthPlanState(user.growthPlan, settings);
     if (gp.planStatus === "active") {
@@ -391,8 +450,11 @@ export async function activateGrowthPlan(
       throw new GrowthPlanError("Re-entry is disabled by admin", "REENTRY_DISABLED");
     }
 
-    const balance = Number(user.walletBalance ?? 0);
-    if (deductFromWallet && balance < settings.planAmount) {
+    const walletDebitTotal = settings.planAmount + giftFeeAmount;
+    const debitBalance = isGift
+      ? Number(payerUser?.walletBalance ?? 0)
+      : Number(user.walletBalance ?? 0);
+    if (deductFromWallet && debitBalance < walletDebitTotal) {
       throw new GrowthPlanError("Insufficient wallet balance", "INSUFFICIENT_BALANCE");
     }
 
@@ -457,24 +519,46 @@ export async function activateGrowthPlan(
     } satisfies GrowthCycleDoc);
 
     tx.update(userRef, {
-      ...(deductFromWallet ? { walletBalance: balance - settings.planAmount } : {}),
       growthPlan: nextState,
       updatedAt: FieldValue.serverTimestamp(),
     });
+
+    if (deductFromWallet) {
+      tx.update(debitRef, {
+        walletBalance: debitBalance - walletDebitTotal,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
 
     const incomeRef = db.collection("incomeHistory").doc();
     tx.set(incomeRef, {
       userId,
       investmentId: GROWTH_INCOME_CYCLE_ID,
-      amount: deductFromWallet ? -settings.planAmount : 0,
+      amount: isGift ? 0 : deductFromWallet ? -settings.planAmount : 0,
       type: "INVESTMENT",
       planAmount: settings.planAmount,
       dayNumber: 0,
-      note: deductFromWallet
-        ? `${settings.planName} activation · Cycle ${cycleNumber}`
-        : `${settings.planName} admin activation · Cycle ${cycleNumber}`,
+      note: isGift
+        ? `${settings.planName} activation (sponsored) · Cycle ${cycleNumber} · funded by ${payerUser?.name?.trim() || "member"}`
+        : deductFromWallet
+          ? `${settings.planName} activation · Cycle ${cycleNumber}`
+          : `${settings.planName} admin activation · Cycle ${cycleNumber}`,
       date: now,
     });
+
+    if (isGift && deductFromWallet) {
+      const payerDebitRef = db.collection("incomeHistory").doc();
+      tx.set(payerDebitRef, {
+        userId: debitUserId,
+        investmentId: GROWTH_INCOME_CYCLE_ID,
+        amount: -settings.planAmount,
+        type: "ADJUSTMENT",
+        planAmount: 0,
+        dayNumber: 0,
+        note: `Wallet: sponsored Smart Growth for ${user.name?.trim() || "member"} (${userId}) · ${settings.planName}`,
+        date: now,
+      });
+    }
 
     if (processReferral && sponsorRef && sponsor) {
       const sponsorGp = normalizeGrowthPlanState(sponsor.growthPlan, settings);

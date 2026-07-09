@@ -25,11 +25,12 @@ import { useForm, useWatch, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
-import { Wallet, AlertCircle } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Wallet, AlertCircle, CheckCircle2, Users } from "lucide-react";
 import { Link } from "wouter";
 import { useMemo, useEffect, useRef, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { getWithdrawalEligibilityStatus, type GrowthWithdrawalEligibility } from "@/lib/growth-plan-api";
 
 function savedAccountSummary(a: { label?: string | null; bankName: string; accountNumber: string; ifscCode: string }): string {
   const tail = a.accountNumber.length <= 4 ? a.accountNumber : `…${a.accountNumber.slice(-4)}`;
@@ -94,6 +95,109 @@ function parseAmountPreview(raw: unknown): number {
   return Number.isFinite(n) ? n : NaN;
 }
 
+function WithdrawalEligibilityBanner({
+  status,
+  loading,
+}: {
+  status: GrowthWithdrawalEligibility | undefined;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <Card className="border-border/80">
+        <div className="p-4 text-sm text-muted-foreground">Checking withdrawal eligibility…</div>
+      </Card>
+    );
+  }
+  if (!status) return null;
+
+  const eligible = status.eligible;
+  const borderClass = eligible
+    ? "border-emerald-500/40 bg-emerald-500/5"
+    : "border-amber-500/40 bg-amber-500/5";
+
+  return (
+    <Card className={cn("mb-6", borderClass)}>
+      <div className="p-4 md:p-5 space-y-4">
+        <div className="flex flex-wrap items-start gap-3 justify-between">
+          <div className="flex items-start gap-3">
+            {eligible ? (
+              <CheckCircle2 className="h-6 w-6 text-emerald-500 shrink-0 mt-0.5" />
+            ) : (
+              <AlertCircle className="h-6 w-6 text-amber-500 shrink-0 mt-0.5" />
+            )}
+            <div>
+              <h3 className="font-semibold text-foreground">
+                {eligible ? "You can submit a withdrawal" : "Withdrawal requirements not met yet"}
+              </h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                {status.appliesGrowthRules
+                  ? "Smart Growth rules: active plan + 2 active direct referrals on the ₹200 plan + minimum wallet balance."
+                  : "Standard rules: wallet balance must meet the minimum withdrawal amount."}
+              </p>
+            </div>
+          </div>
+          {status.appliesGrowthRules ? (
+            <Link href="/smart-growth" className="text-sm text-primary hover:underline shrink-0">
+              View Smart Growth →
+            </Link>
+          ) : null}
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
+            <p className="text-xs text-muted-foreground">Wallet balance</p>
+            <p className="font-semibold tabular-nums">{formatINR(status.walletBalance)}</p>
+          </div>
+          <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
+            <p className="text-xs text-muted-foreground">Minimum withdraw</p>
+            <p className="font-semibold tabular-nums">{formatINR(status.minWithdrawal)}</p>
+          </div>
+          {status.appliesGrowthRules ? (
+            <>
+              <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Users className="h-3 w-3" /> Active referrals
+                </p>
+                <p className="font-semibold tabular-nums">
+                  {status.activeDirects} / {status.requiredDirects}
+                </p>
+                <p className="text-[10px] text-muted-foreground">{status.totalDirects} signed up total</p>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
+                <p className="text-xs text-muted-foreground">Plan status</p>
+                <p className="font-semibold capitalize">{status.planStatus ?? "—"}</p>
+              </div>
+            </>
+          ) : (
+            <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2 col-span-2">
+              <p className="text-xs text-muted-foreground">Amount still needed</p>
+              <p className="font-semibold tabular-nums text-amber-400">
+                {status.amountNeeded > 0 ? formatINR(status.amountNeeded) : "—"}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {status.blockers.length > 0 ? (
+          <ul className="space-y-1.5 text-sm text-amber-200/90">
+            {status.blockers.map((line) => (
+              <li key={line} className="flex gap-2">
+                <span className="text-amber-500 shrink-0">•</span>
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-emerald-400">
+            Your wallet meets the minimum and all referral rules are satisfied. Enter an amount and submit below.
+          </p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 export default function Withdrawals() {
   const { data: user } = useGetMe();
   const { data: history, isLoading } = useGetMyWithdrawals();
@@ -122,8 +226,11 @@ export default function Withdrawals() {
   }, [savedAccounts]);
 
   const feePercent = feeSettings?.withdrawalFeePercent ?? 10;
-  const minWithdrawal = feeSettings?.minWithdrawalAmount ?? 100;
-  const formSchema = useMemo(() => withdrawalFormSchema(minWithdrawal), [minWithdrawal]);
+  const minWithdrawalFromFees = feeSettings?.minWithdrawalAmount ?? 100;
+  const formSchema = useMemo(
+    () => withdrawalFormSchema(minWithdrawalFromFees),
+    [minWithdrawalFromFees],
+  );
 
   const {
     register,
@@ -145,11 +252,26 @@ export default function Withdrawals() {
     },
   });
 
+  const amountRaw = useWatch({ control, name: "amount", defaultValue: "" });
+  const amountForEligibility = parseAmountPreview(amountRaw);
+  const eligibilityAmount =
+    Number.isFinite(amountForEligibility) && amountForEligibility > 0 ? amountForEligibility : 0;
+
+  const { data: eligibility, isLoading: eligibilityLoading } = useQuery({
+    queryKey: ["withdrawal-eligibility-status", eligibilityAmount, user?.walletBalance],
+    queryFn: () => getWithdrawalEligibilityStatus(eligibilityAmount),
+    enabled: Boolean(user),
+    staleTime: 5_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const minWithdrawal = eligibility?.minWithdrawal ?? minWithdrawalFromFees;
+
   useEffect(() => {
     clearErrors();
   }, [payoutSource, clearErrors]);
 
-  const amountRaw = useWatch({ control, name: "amount", defaultValue: "" });
+  const canSubmitWithdrawal = eligibility ? eligibility.eligible : true;
 
   const preview = useMemo(() => {
     const requestAmount = parseAmountPreview(amountRaw);
@@ -187,6 +309,7 @@ export default function Withdrawals() {
           reset();
           setSaveToProfile(true);
           queryClient.invalidateQueries();
+          void queryClient.invalidateQueries({ queryKey: ["withdrawal-eligibility-status"] });
         },
         onError: (err: unknown) => {
           const msg = err instanceof Error ? err.message : "Failed to request withdrawal";
@@ -216,6 +339,7 @@ export default function Withdrawals() {
         onSuccess: () => {
           toast.success("Withdrawal request submitted");
           queryClient.invalidateQueries();
+          void queryClient.invalidateQueries({ queryKey: ["withdrawal-eligibility-status"] });
         },
         onError: (err: unknown) => {
           const msg = err instanceof Error ? err.message : "Failed to request withdrawal";
@@ -233,6 +357,8 @@ export default function Withdrawals() {
         <h2 className="text-3xl font-display font-bold">Withdraw Funds</h2>
         <p className="text-muted-foreground">Transfer your earnings to your bank account</p>
       </div>
+
+      <WithdrawalEligibilityBanner status={eligibility} loading={eligibilityLoading} />
 
       <div className="grid lg:grid-cols-3 gap-8">
         <div className="lg:col-span-1 space-y-6">
@@ -422,9 +548,12 @@ export default function Withdrawals() {
                   </p>
                 </div>
 
-                <Button type="submit" className="w-full" isLoading={isPending}>
+                <Button type="submit" className="w-full" isLoading={isPending} disabled={!canSubmitWithdrawal}>
                   Submit Request
                 </Button>
+                {!canSubmitWithdrawal && eligibility?.reason ? (
+                  <p className="text-xs text-center text-amber-500">{eligibility.reason}</p>
+                ) : null}
               </form>
             </div>
           </Card>

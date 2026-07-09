@@ -15,7 +15,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState } from "react";
 import { AlertCircle, Gift, UserSearch, Check } from "lucide-react";
-import { getGrowthDashboard } from "@/lib/growth-plan-api";
+import {
+  getGrowthDashboard,
+  getGrowthPlanSettingsPublic,
+  giftGrowthPlan,
+} from "@/lib/growth-plan-api";
+
+const SMART_GROWTH_PLAN_ID = "__smart_growth__";
 
 type DestMode = "userId" | "email" | "referral";
 
@@ -28,6 +34,11 @@ export default function GiftPlan() {
   const { data: growthDash } = useQuery({
     queryKey: ["growth-plan-dashboard"],
     queryFn: getGrowthDashboard,
+    retry: 1,
+  });
+  const { data: growthSettings, isLoading: growthSettingsLoading } = useQuery({
+    queryKey: ["growth-plan-settings-public"],
+    queryFn: getGrowthPlanSettingsPublic,
     retry: 1,
   });
   const peerPct = feeSettings?.peerTransferFeePercent ?? 0;
@@ -99,7 +110,11 @@ export default function GiftPlan() {
     }
     setActivatingId(planId);
     try {
-      await createInvestment({ planId, beneficiaryUserId: beneficiaryId });
+      if (planId === SMART_GROWTH_PLAN_ID) {
+        await giftGrowthPlan(beneficiaryId);
+      } else {
+        await createInvestment({ planId, beneficiaryUserId: beneficiaryId });
+      }
       toast.success("Plan activated for your member.");
       await queryClient.invalidateQueries();
       await queryClient.invalidateQueries({ queryKey: AUTH_ME_QUERY_KEY });
@@ -111,6 +126,8 @@ export default function GiftPlan() {
   };
 
   const activePlans = plans?.filter((p) => p.isActive && p.planKind !== "standalone") ?? [];
+  const growthGiftAvailable = growthSettings?.planStatus === "active";
+  const hasGiftPlans = activePlans.length > 0 || growthGiftAvailable;
 
   return (
     <AppLayout>
@@ -227,12 +244,47 @@ export default function GiftPlan() {
 
         <div>
           <h3 className="font-display font-semibold text-lg mb-4">2. Choose a plan</h3>
-          {isLoading ? (
+          {isLoading || growthSettingsLoading ? (
             <p className="text-muted-foreground">Loading plans…</p>
-          ) : activePlans.length === 0 ? (
+          ) : !hasGiftPlans ? (
             <p className="text-muted-foreground">No active plans available.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {growthGiftAvailable && growthSettings ? (
+                <Card key={SMART_GROWTH_PLAN_ID} className="border-primary/30">
+                  <CardContent className="p-6 flex flex-col gap-4 h-full">
+                    <div className="flex justify-between items-start gap-2">
+                      <div>
+                        <h4 className="font-bold text-lg">{growthSettings.planName}</h4>
+                        <p className="text-2xl font-display font-bold text-primary mt-1 tabular-nums">
+                          {formatINR(growthSettings.planAmount)}
+                        </p>
+                      </div>
+                      <Badge variant="success">Smart Growth</Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground flex-1">
+                      Daily ROI {formatINR(growthSettings.dailyRoi)} · {growthSettings.planDuration} days · up to{" "}
+                      {formatINR(growthSettings.maxEarnings)} cap. Activates Smart Growth on their account.
+                    </p>
+                    {peerPct > 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        You pay {formatINR(growthSettings.planAmount + giftFeeOnPlan(growthSettings.planAmount))} total (
+                        {formatINR(growthSettings.planAmount)} plan + {formatINR(giftFeeOnPlan(growthSettings.planAmount))}{" "}
+                        fee at {peerPct}%).
+                      </p>
+                    ) : null}
+                    <Button
+                      type="button"
+                      disabled={!beneficiaryId}
+                      isLoading={activatingId === SMART_GROWTH_PLAN_ID}
+                      onClick={() => void handleActivate(SMART_GROWTH_PLAN_ID, growthSettings.planAmount)}
+                    >
+                      <Gift className="h-4 w-4 mr-2" />
+                      Activate for them
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : null}
               {activePlans.map((plan) => {
                 const fee = giftFeeOnPlan(plan.amount);
                 return (

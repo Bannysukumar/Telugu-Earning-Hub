@@ -1,10 +1,12 @@
 import { apiUrl } from "@/lib/api-url";
 
 async function growthFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = typeof localStorage !== "undefined" ? localStorage.getItem("roi_token") : null;
   const res = await fetch(apiUrl(path), {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers ?? {}),
     },
   });
@@ -56,6 +58,13 @@ export type GrowthWithdrawalEligibility = {
   eligible: boolean;
   reason: string | null;
   minWithdrawal: number;
+  walletBalance: number;
+  planStatus: string | null;
+  activeDirects: number;
+  requiredDirects: number;
+  totalDirects: number;
+  amountNeeded: number;
+  blockers: string[];
 };
 
 export type GrowthAdminSettings = {
@@ -94,10 +103,28 @@ export function reEnterGrowthPlan() {
   );
 }
 
+export function giftGrowthPlan(beneficiaryUserId: string) {
+  return growthFetch<{
+    cycleId: string;
+    cycleNumber: number;
+    beneficiaryUserId: string;
+    beneficiaryName: string;
+    dashboard: GrowthDashboard | null;
+  }>("/api/growth-plan/gift", {
+    method: "POST",
+    body: JSON.stringify({ beneficiaryUserId }),
+  });
+}
+
 export function getGrowthWithdrawalEligibility(amount: number) {
   return growthFetch<GrowthWithdrawalEligibility>(
     `/api/growth-plan/withdrawal-eligibility?amount=${encodeURIComponent(String(amount))}`,
   );
+}
+
+export function getWithdrawalEligibilityStatus(amount = 0) {
+  const q = amount > 0 ? `?amount=${encodeURIComponent(String(amount))}` : "";
+  return growthFetch<GrowthWithdrawalEligibility>(`/api/withdrawals/eligibility-status${q}`);
 }
 
 export function getAdminGrowthSettings() {
