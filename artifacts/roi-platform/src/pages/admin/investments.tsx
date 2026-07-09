@@ -6,7 +6,7 @@ import {
   useAdminGetUsers,
   useAdminGetPlans,
 } from "@workspace/api-client-react";
-import type { AdminInvestment } from "@workspace/api-client-react";
+import type { AdminInvestment, AdminUser } from "@workspace/api-client-react";
 import { Card, Table, TableHeader, TableRow, TableHead, TableBody, TableCell, Badge, Button, Input, Label } from "@/components/ui/core";
 import { formatINR, formatDate, cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -33,13 +33,26 @@ import {
 } from "@/lib/growth-plan-api";
 
 const INVESTMENTS_QUERY_PREFIX = "/api/admin/investments" as const;
+const USERS_QUERY_PREFIX = "/api/admin/users" as const;
 const PAGE_SIZE = 25;
 const SMART_GROWTH_PLAN_ID = "__smart_growth__";
+
+type AdminUserWithGrowth = AdminUser & {
+  growthPlanStatus?: string;
+  growthRemainingDays?: number;
+};
 
 function statusLabel(s: string) {
   if (s === "manually_stopped") return "Manual stop";
   if (s === "completed") return "Completed";
   return "Active";
+}
+
+function growthStatusLabel(status?: string) {
+  if (status === "active") return "Active";
+  if (status === "completed") return "Completed";
+  if (status === "expired") return "Expired";
+  return "Pending";
 }
 
 export default function AdminInvestments() {
@@ -94,14 +107,19 @@ export default function AdminInvestments() {
   );
 
   const { data: listData, isLoading } = useAdminGetInvestments(listParams);
-  const { data: users = [], isLoading: usersLoading } = useAdminGetUsers();
+  const { data: usersRaw = [], isLoading: usersLoading } = useAdminGetUsers();
   const { data: plans = [], isLoading: plansLoading } = useAdminGetPlans();
+  const users = usersRaw as AdminUserWithGrowth[];
 
   const { mutate: patchInvestment, isPending: isPatching } = useAdminPatchInvestment();
   const { mutate: createInvestment, isPending: isCreating } = useAdminCreateInvestment();
 
   const invalidateInvestments = useCallback(() => {
     void qc.invalidateQueries({ queryKey: [INVESTMENTS_QUERY_PREFIX] });
+  }, [qc]);
+
+  const invalidateUsers = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: [USERS_QUERY_PREFIX] });
   }, [qc]);
 
   const investments = listData?.items ?? [];
@@ -122,6 +140,16 @@ export default function AdminInvestments() {
   }, [users, userPickQuery]);
 
   const selectedCreateUser = users.find((u) => u.id === createUserId);
+  const selectedGrowthStatus = selectedCreateUser?.growthPlanStatus ?? "pending";
+  const selectedHasActiveGrowth = selectedGrowthStatus === "active";
+  const selectingSmartGrowth = createPlanId === SMART_GROWTH_PLAN_ID;
+  const smartGrowthBlocked = selectingSmartGrowth && selectedHasActiveGrowth;
+
+  useEffect(() => {
+    if (createPlanId === SMART_GROWTH_PLAN_ID && selectedHasActiveGrowth) {
+      setCreatePlanId("");
+    }
+  }, [createUserId, selectedHasActiveGrowth, createPlanId]);
 
   const onActivatePlan = () => {
     if (!createUserId || !createPlanId) {
@@ -130,6 +158,15 @@ export default function AdminInvestments() {
     }
 
     if (createPlanId === SMART_GROWTH_PLAN_ID) {
+      if (selectedHasActiveGrowth) {
+        toast.error(
+          `${selectedCreateUser?.name ?? "This user"} already has an active Smart Growth Plan` +
+            (selectedCreateUser?.growthRemainingDays
+              ? ` (${selectedCreateUser.growthRemainingDays} days left).`
+              : "."),
+        );
+        return;
+      }
       setIsActivatingGrowth(true);
       void adminActivateGrowthPlan(createUserId, false)
         .then((res) => {
@@ -137,6 +174,7 @@ export default function AdminInvestments() {
             `Smart Growth activated (cycle ${res.cycleNumber}). Wallet was not deducted.`,
           );
           setCreatePlanId("");
+          invalidateUsers();
         })
         .catch((err: unknown) =>
           toast.error(err instanceof Error ? err.message : "Could not activate Smart Growth"),
@@ -210,7 +248,18 @@ export default function AdminInvestments() {
                 </SelectContent>
               </Select>
               {selectedCreateUser ? (
-                <p className="text-xs text-muted-foreground font-mono break-all">ID: {selectedCreateUser.id}</p>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground font-mono break-all">ID: {selectedCreateUser.id}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Smart Growth:{" "}
+                    <span className="font-medium text-foreground">
+                      {growthStatusLabel(selectedGrowthStatus)}
+                    </span>
+                    {selectedHasActiveGrowth
+                      ? ` · ${selectedCreateUser.growthRemainingDays ?? 0} days left`
+                      : null}
+                  </p>
+                </div>
               ) : null}
             </div>
             <div className="space-y-2">
@@ -225,10 +274,11 @@ export default function AdminInvestments() {
                 </SelectTrigger>
                 <SelectContent className="max-h-72">
                   {growthPlanOptionActive && growthSettings ? (
-                    <SelectItem value={SMART_GROWTH_PLAN_ID}>
+                    <SelectItem value={SMART_GROWTH_PLAN_ID} disabled={selectedHasActiveGrowth}>
                       <span className="font-medium">{growthSettings.planName}</span>
                       <span className="text-xs text-muted-foreground block">
                         {formatINR(growthSettings.planAmount)} · {formatINR(growthSettings.dailyRoi)}/day · Smart Growth
+                        {selectedHasActiveGrowth ? " · already active for this user" : ""}
                       </span>
                     </SelectItem>
                   ) : null}
@@ -245,11 +295,17 @@ export default function AdminInvestments() {
                   ) : null}
                 </SelectContent>
               </Select>
+              {smartGrowthBlocked ? (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  This user already has an active Smart Growth Plan. Pick a pending user (e.g. Platform Admin or
+                  adepu sukumar), or wait until the current cycle completes.
+                </p>
+              ) : null}
             </div>
           </div>
           <Button
             onClick={onActivatePlan}
-            disabled={activateBusy || !createUserId || !createPlanId}
+            disabled={activateBusy || !createUserId || !createPlanId || smartGrowthBlocked}
             isLoading={activateBusy}
             className="w-full sm:w-auto"
           >
