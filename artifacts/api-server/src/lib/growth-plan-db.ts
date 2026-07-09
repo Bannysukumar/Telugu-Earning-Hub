@@ -604,22 +604,31 @@ export async function listAllGrowthCyclesOrdered(): Promise<(GrowthCycleDoc & { 
 export function growthUserInvestmentTotals(
   user: GrowthUserDoc,
   cycles: (GrowthCycleDoc & { id: string })[],
+  settings: GrowthPlanSettingsDoc = GROWTH_PLAN_DEFAULTS as GrowthPlanSettingsDoc,
 ): { totalInvested: number; totalEarned: number; activeInvestments: number } {
-  if (cycles.length === 0) {
-    const gp = user.growthPlan;
-    if (!gp || gp.planStatus === "pending") {
-      return { totalInvested: 0, totalEarned: 0, activeInvestments: 0 };
-    }
+  if (cycles.length > 0) {
     return {
-      totalInvested: gp.planAmount,
-      totalEarned: gp.lifetimeIncome,
-      activeInvestments: gp.planStatus === "active" ? 1 : 0,
+      totalInvested: cycles.reduce((acc, c) => acc + c.planAmount, 0),
+      totalEarned:
+        user.growthPlan?.lifetimeIncome ?? cycles.reduce((acc, c) => acc + c.currentPlanIncome, 0),
+      activeInvestments: cycles.filter((c) => c.planStatus === "active").length,
     };
   }
+
+  const gp = normalizeGrowthPlanState(user.growthPlan, settings);
+  const hasParticipated =
+    gp.currentCycle > 0 ||
+    gp.planStatus === "active" ||
+    gp.planStatus === "expired" ||
+    gp.planStatus === "completed";
+  if (!hasParticipated) {
+    return { totalInvested: 0, totalEarned: 0, activeInvestments: 0 };
+  }
+
   return {
-    totalInvested: cycles.reduce((acc, c) => acc + c.planAmount, 0),
-    totalEarned: user.growthPlan?.lifetimeIncome ?? cycles.reduce((acc, c) => acc + c.currentPlanIncome, 0),
-    activeInvestments: cycles.filter((c) => c.planStatus === "active").length,
+    totalInvested: gp.planAmount * Math.max(1, gp.currentCycle),
+    totalEarned: gp.lifetimeIncome,
+    activeInvestments: gp.planStatus === "active" ? 1 : 0,
   };
 }
 

@@ -75,7 +75,9 @@ import {
   growthCycleToAdminInvestmentJson,
   growthUserInvestmentTotals,
   listAllGrowthCyclesOrdered,
+  GROWTH_PLAN_DEFAULTS,
   type GrowthCycleDoc,
+  type GrowthPlanSettingsDoc,
   type GrowthUserDoc,
 } from "../lib/growth-plan-db.js";
 
@@ -113,6 +115,7 @@ function formatAdminUser(
   userInvestments: InvestmentDoc[],
   legsByReferrer: Map<string, { left: AdminDirectMember[]; right: AdminDirectMember[] }>,
   growthCycles: (GrowthCycleDoc & { id: string })[] = [],
+  growthSettings: GrowthPlanSettingsDoc = GROWTH_PLAN_DEFAULTS as GrowthPlanSettingsDoc,
 ) {
   const growth = (user as UserDoc & {
     growthPlan?: {
@@ -135,7 +138,7 @@ function formatAdminUser(
     }
   }
   const legs = legsByReferrer.get(user.id) ?? { left: [], right: [] };
-  const growthTotals = growthUserInvestmentTotals(user as GrowthUserDoc, growthCycles);
+  const growthTotals = growthUserInvestmentTotals(user as GrowthUserDoc, growthCycles, growthSettings);
   return {
     id: user.id,
     name: user.name,
@@ -345,10 +348,11 @@ router.get("/dashboard", async (_req, res) => {
 });
 
 router.get("/users", async (_req, res) => {
-  const [users, investments, allGrowthCycles] = await Promise.all([
+  const [users, investments, allGrowthCycles, growthSettings] = await Promise.all([
     listUsersOrdered(),
     listAllInvestmentsOrdered(),
     listAllGrowthCyclesOrdered(),
+    getGrowthPlanSettings(),
   ]);
   const legsByReferrer = buildDirectLegsByReferrer(users);
   const growthCyclesByUser = new Map<string, (GrowthCycleDoc & { id: string })[]>();
@@ -361,7 +365,7 @@ router.get("/users", async (_req, res) => {
   const result = users.map((user) => {
     const userInvestments = investments.filter((inv) => inv.userId === user.id);
     const userGrowthCycles = growthCyclesByUser.get(user.id) ?? [];
-    return formatAdminUser(user, userInvestments, legsByReferrer, userGrowthCycles);
+    return formatAdminUser(user, userInvestments, legsByReferrer, userGrowthCycles, growthSettings);
   });
 
   res.json(result);
@@ -525,16 +529,17 @@ router.put("/users/:userId", async (req, res) => {
     return;
   }
 
-  const [users, investments, allGrowthCycles] = await Promise.all([
+  const [users, investments, allGrowthCycles, growthSettings] = await Promise.all([
     listUsersOrdered(),
     listAllInvestmentsOrdered(),
     listAllGrowthCyclesOrdered(),
+    getGrowthPlanSettings(),
   ]);
   const userInvestments = investments.filter((inv) => inv.userId === userId);
   const legsByReferrer = buildDirectLegsByReferrer(users);
   const userGrowthCycles = allGrowthCycles.filter((c) => c.userId === userId);
 
-  res.json(formatAdminUser(updated, userInvestments, legsByReferrer, userGrowthCycles));
+  res.json(formatAdminUser(updated, userInvestments, legsByReferrer, userGrowthCycles, growthSettings));
 });
 
 function planJson(p: PlanDoc & { id: string }) {
